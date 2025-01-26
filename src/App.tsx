@@ -1,11 +1,19 @@
-import { useCallback, useEffect } from "react";
 import {
-	OnChangeJSON,
+	useCallback,
+	useRef,
+	forwardRef,
+	useImperativeHandle,
+	useEffect,
+	useState,
+} from "react";
+import {
 	useCommands,
 	useHelpers,
 	EditorComponent,
 	Remirror,
 	useRemirror,
+	ReactFrameworkOutput,
+	useRemirrorContext,
 } from "@remirror/react";
 import type { RemirrorJSON } from "remirror";
 import {
@@ -14,7 +22,7 @@ import {
 	findMinMaxRange,
 } from "remirror/extensions";
 import { Decoration } from "@remirror/pm/view";
-import { db } from "./db";
+import { db, type EditorContent } from "./db";
 import { useLiveQuery } from "dexie-react-hooks";
 import { mix, transparentize } from "color2k";
 
@@ -41,16 +49,6 @@ const LABEL_CONFIGS: LabelConfig[] = [
 // Replace the old HighlightType and highlightMap with a more flexible system
 const highlightMap = new Map<string, string>(); // Maps highlight ID to label ID
 
-// First, let's modify the EntityReferenceMetaData type to include our custom attributes
-type HighlightData = {
-	id: string;
-	labelType: string;
-	attrs?: {
-		labelType: string;
-		type: string;
-	};
-};
-
 // Helper function to mix multiple colors with proper alpha blending
 const mixColors = (colors: string[]): string => {
 	if (colors.length === 0) return "transparent";
@@ -65,15 +63,15 @@ const mixColors = (colors: string[]): string => {
 	);
 };
 
-// Update the decorateHighlights function to add debugging
+// Update the decorateHighlights function
 const decorateHighlights = (
 	highlights: EntityReferenceMetaData[][]
 ): Decoration[] => {
 	return highlights.map((overlappingHighlights) => {
-		// Get label IDs directly from the highlight attributes
+		// Get label IDs from the highlight map instead of attributes
 		const labelIds = overlappingHighlights
-			.map((h) => h.attrs?.labelType || highlightMap.get(h.id))
-			.filter((id): id is string => id !== undefined);
+			.map((h) => highlightMap.get(h.id))
+			.filter(Boolean);
 
 		// Get colors for these labels
 		const colors = labelIds
@@ -81,61 +79,95 @@ const decorateHighlights = (
 				const config = LABEL_CONFIGS.find((config) => config.id === labelId);
 				if (!config) {
 					console.warn(`No color config found for label: ${labelId}`);
+					return null;
 				}
-				return config?.color;
+				return config.color;
 			})
-			.filter((color): color is string => color !== undefined);
+			.filter(Boolean) as string[];
 
-		if (colors.length === 0) {
-			console.warn("No colors found for highlights:", overlappingHighlights);
-		}
-
-		const style = `background: ${mixColors(colors)}; padding: 2px 0;`;
 		const [from, to] = findMinMaxRange(overlappingHighlights);
+		const style = `background: ${mixColors(colors)}; padding: 2px 0;`;
+
 		return Decoration.inline(from, to, { style });
 	});
 };
 
 // Update the HighlightButtons component to be dynamic
-const HighlightButtons = () => {
-	const { getEntityReferencesAt } = useHelpers<EntityReferenceExtension>();
+const HighlightButtons = ({
+	onSave,
+}: {
+	onSave: (json: RemirrorJSON) => void;
+}) => {
+	const { getEntityReferencesAt, manager } =
+		useHelpers<EntityReferenceExtension>();
 	const commands = useCommands<EntityReferenceExtension>();
+	const { getState } = useRemirrorContext();
 	const highlightsAt = getEntityReferencesAt();
 
-	const handleHighlight = (labelId: string) => {
-		// Only check for highlights of this type at the current selection
-		const highlightsOfType = highlightsAt.filter(
-			(h) => h.attrs?.labelType === labelId
-		);
+	const handleHighlight = useCallback(
+		(labelId: string) => {
+			console.log("=== Highlight Operation Start ===");
 
-		// If there are highlights of this type at the current selection, remove them
-		if (highlightsOfType.length > 0) {
-			highlightsOfType.forEach((highlight) => {
-				commands.removeEntityReference(highlight.id);
-				highlightMap.delete(highlight.id);
-			});
-		} else {
-			// Add new highlight with unique ID and explicitly store the labelType
-			const id = crypto.randomUUID();
-			commands.addEntityReference(id, {
-				id,
-				labelType: labelId,
-				type: labelId,
-				attrs: {
+			// Only check for highlights of this type at the current selection
+			const highlightsOfType = highlightsAt.filter(
+				(h) => highlightMap.get(h.id) === labelId
+			);
+
+			// If there are highlights of this type at the current selection, remove them
+			if (highlightsOfType.length > 0) {
+				console.log("Removing highlights:", highlightsOfType);
+				highlightsOfType.forEach((highlight) => {
+					commands.removeEntityReference(highlight.id);
+					highlightMap.delete(highlight.id);
+				});
+			} else {
+				// Add new highlight with unique ID and explicitly store the labelType
+				const id = crypto.randomUUID();
+				console.log("Adding new highlight:", { id, labelId });
+
+				commands.addEntityReference(id, {
+					id,
 					labelType: labelId,
 					type: labelId,
-				},
-			});
-			highlightMap.set(id, labelId);
-		}
-	};
+					attrs: {
+						labelType: labelId,
+						type: labelId,
+					},
+				});
+				highlightMap.set(id, labelId);
+			}
+
+			// Get the current state and save
+			const state = getState();
+			const json = state.doc.toJSON();
+
+			// Save both content and highlights
+			const contentWithHighlights = {
+				...json,
+				highlights: Array.from(highlightMap.entries()).map(
+					([id, labelType]) => ({
+						id,
+						labelType,
+						attrs: {
+							labelType,
+							type: labelType,
+						},
+					})
+				),
+			};
+
+			onSave(contentWithHighlights);
+			console.log("=== Highlight Operation End ===");
+		},
+		[commands, highlightsAt, onSave, getState]
+	);
 
 	return (
 		<div>
 			{LABEL_CONFIGS.map((label) => {
 				// Check if there are any highlights of this type at the current selection
 				const active = highlightsAt.some(
-					(h) => h.attrs?.labelType === label.id
+					(h) => highlightMap.get(h.id) === label.id
 				);
 
 				return (
@@ -186,126 +218,214 @@ const ResetDatabaseButton = () => {
 	);
 };
 
-const App = ({ placeholder }: AppProps) => {
-	const latestContent = useLiveQuery(async () => {
-		const record = await db.editorContent
-			.orderBy("updatedAt")
-			.reverse()
-			.first();
+type EditorProps = {
+	initialContent?: RemirrorJSON;
+	placeholder?: string;
+	onChange?: (parameter: any) => void;
+	onChangeJSON?: (json: RemirrorJSON) => void;
+};
 
-		if (record?.highlights) {
-			highlightMap.clear();
-			record.highlights.forEach((highlight: HighlightData) => {
-				highlightMap.set(highlight.id, highlight.labelType);
-			});
-		}
-
-		// Just return the content without trying to modify it
-		return (
-			record?.content ?? {
-				type: "doc",
-				content: [{ type: "paragraph" }],
-			}
-		);
-	});
-
-	const { manager, state, setState } = useRemirror({
+// Create a separate editor component that exposes its context via ref
+const Editor = forwardRef<
+	ReactFrameworkOutput<EntityReferenceExtension>,
+	EditorProps
+>((props: EditorProps, ref) => {
+	const [isInitialized, setIsInitialized] = useState(false);
+	const { manager, state, setState, getContext } = useRemirror({
 		extensions: () => [
 			new EntityReferenceExtension({
 				getStyle: decorateHighlights,
 			}),
 		],
-		content: latestContent,
+		content: props.initialContent ?? {
+			type: "doc",
+			content: [{ type: "paragraph" }],
+		},
 		stringHandler: "html",
 	});
 
-	// Move all hooks before any conditional returns
-	useEffect(() => {
-		return () => {
-			highlightMap.clear();
-		};
-	}, []);
-
-	const handleEditorChange = useCallback(async (json: RemirrorJSON) => {
-		try {
-			if (json.type === "doc") {
-				const latestRecord = await db.editorContent
-					.orderBy("updatedAt")
-					.reverse()
-					.first();
-
-				// Store the full highlight data including attrs
-				const highlights = Array.from(highlightMap.entries()).map(
-					([id, labelType]) => ({
-						id,
-						labelType,
-						attrs: {
-							labelType,
-							type: labelType,
-						},
-					})
-				);
-
-				const hasChanged =
-					JSON.stringify(latestRecord?.content) !== JSON.stringify(json) ||
-					JSON.stringify(latestRecord?.highlights) !==
-						JSON.stringify(highlights);
-
-				if (hasChanged) {
-					// Instead of clearing the entire table, just update or add the new record
-					if (latestRecord?.id) {
-						await db.editorContent.update(latestRecord.id, {
-							content: json,
-							highlights,
-							updatedAt: new Date(),
-						});
-					} else {
-						await db.editorContent.add({
-							content: json,
-							highlights,
-							updatedAt: new Date(),
-						});
-					}
-				}
-			}
-		} catch (error) {
-			console.error("Failed to save editor content:", error);
-		}
-	}, []);
-
-	// Add state management
-	const handleChange = useCallback(
-		(parameter: any) => {
-			// Update the editor state
-			setState(parameter.state);
-		},
-		[setState]
+	useImperativeHandle(
+		ref,
+		() => getContext() as ReactFrameworkOutput<EntityReferenceExtension>,
+		[getContext]
 	);
 
-	// Loading check after all hooks are defined
-	if (latestContent === undefined) {
-		return <div className="remirror-theme p-4">Loading...</div>;
-	}
+	// Initialize content when it's loaded
+	useEffect(() => {
+		if (!isInitialized && props.initialContent) {
+			console.log("Initializing editor with content:", props.initialContent);
+			setState(
+				manager.createState({
+					content: props.initialContent,
+					stringHandler: "html",
+				})
+			);
+			setIsInitialized(true);
+		}
+	}, [isInitialized, props.initialContent, manager, setState]);
 
-	console.log("latestContent:", latestContent);
-	console.log("state:", state);
+	const handleChange = useCallback(
+		(parameter: any) => {
+			setState(parameter.state);
+			props.onChange?.(parameter);
+
+			// Extract all marks from the document
+			parameter.state.doc.forEach((node: any, _pos: number, _parent: any) => {
+				if (node.content) {
+					node.content.forEach((textNode: any) => {
+						if (textNode.marks) {
+							textNode.marks.forEach((mark: any) => {
+								if (mark.type === "entity-reference") {
+									console.log("Found entity-reference mark:", mark);
+									if (mark.attrs?.id && mark.attrs?.labelType) {
+										highlightMap.set(mark.attrs.id, mark.attrs.labelType);
+										console.log(
+											"Updated highlightMap:",
+											Array.from(highlightMap.entries())
+										);
+									}
+								}
+							});
+						}
+					});
+				}
+			});
+
+			const json = parameter.state.doc.toJSON();
+			if (json.content?.[0]?.content?.length > 0 || isInitialized) {
+				props.onChangeJSON?.(json);
+			}
+		},
+		[setState, props.onChange, props.onChangeJSON, isInitialized]
+	);
+
+	return (
+		<Remirror
+			manager={manager}
+			state={state}
+			onChange={handleChange}
+			placeholder={props.placeholder || "Enter text..."}
+		>
+			<EditorComponent />
+			<div className="border-t border-gray-200 p-3">
+				<HighlightButtons onSave={props.onChangeJSON!} />
+			</div>
+		</Remirror>
+	);
+});
+
+Editor.displayName = "Editor";
+
+const App = ({ placeholder }: AppProps) => {
+	const editorRef =
+		useRef<ReactFrameworkOutput<EntityReferenceExtension>>(null);
+
+	const dbContent = useLiveQuery(
+		async () => {
+			const record = await db.editorContent
+				.orderBy("updatedAt")
+				.reverse()
+				.first();
+
+			if (record) {
+				console.log("Loaded record from database:", record);
+
+				if (record.highlights) {
+					highlightMap.clear();
+					record.highlights.forEach((highlight) => {
+						highlightMap.set(highlight.id, highlight.labelType);
+					});
+					console.log(
+						"Restored highlights:",
+						Array.from(highlightMap.entries())
+					);
+				}
+			}
+
+			return record;
+		},
+		[],
+		{
+			initialValue: null,
+		}
+	);
+
+	const handleEditorChange = useCallback(
+		async (
+			json: RemirrorJSON & {
+				highlights?: Array<{
+					id: string;
+					labelType: string;
+					attrs?: { labelType: string; type: string };
+				}>;
+			}
+		) => {
+			try {
+				if (json.type === "doc") {
+					// Get the current record to preserve existing highlights if not explicitly changed
+					const currentRecord = await db.editorContent
+						.orderBy("updatedAt")
+						.reverse()
+						.first();
+
+					// If highlightMap is empty but we have highlights in the current record,
+					// restore them to maintain highlight state
+					if (
+						highlightMap.size === 0 &&
+						currentRecord?.highlights?.length > 0
+					) {
+						currentRecord.highlights.forEach((highlight) => {
+							highlightMap.set(highlight.id, highlight.labelType);
+						});
+					}
+
+					const newContent = {
+						content: { type: json.type, content: json.content },
+						// Use the current highlightMap state instead of json.highlights
+						highlights: Array.from(highlightMap.entries()).map(
+							([id, labelType]) => ({
+								id,
+								labelType,
+								attrs: {
+									labelType,
+									type: labelType,
+								},
+							})
+						),
+						updatedAt: new Date(),
+					};
+
+					if (currentRecord?.id) {
+						await db.editorContent.update(currentRecord.id, newContent);
+					} else {
+						const id = await db.editorContent.add(newContent);
+						console.log("Created record:", id, "with content:", newContent);
+					}
+
+					// Verify what was saved
+					const savedRecord = await db.editorContent
+						.orderBy("updatedAt")
+						.reverse()
+						.first();
+					console.log("Verification - saved record:", savedRecord);
+				}
+			} catch (error) {
+				console.error("Failed to save editor content:", error);
+			}
+		},
+		[]
+	);
 
 	return (
 		<div className="p-4 md:p-8 lg:p-12 mx-auto">
 			<ResetDatabaseButton />
 			<div className="remirror-theme">
-				<Remirror
-					manager={manager}
-					state={state}
-					onChange={handleChange}
-					placeholder={placeholder || "Enter text..."}
-				>
-					<EditorComponent />
-					<div className="border-t border-gray-200 p-3">
-						<HighlightButtons />
-					</div>
-					<OnChangeJSON onChange={handleEditorChange} />
-				</Remirror>
+				<Editor
+					ref={editorRef}
+					initialContent={(dbContent as EditorContent)?.content}
+					placeholder={placeholder}
+					onChangeJSON={handleEditorChange}
+				/>
 			</div>
 		</div>
 	);

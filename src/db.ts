@@ -1,32 +1,41 @@
-import Dexie, { type Table } from 'dexie';
-import type { RemirrorJSON } from 'remirror';
+import Dexie, { type Table } from "dexie";
+import type { RemirrorJSON } from "remirror";
 
 // Define types for our database content
-interface EditorContent {
-  id?: number;
-  content: RemirrorJSON;
-  highlights: Array<{
-    id: string;
-    labelType: string;
-  }>;
-  updatedAt: Date;
+export interface EditorContent {
+	id?: number;
+	content: RemirrorJSON;
+	highlights: Array<{
+		id: string;
+		labelType: string;
+		attrs?: {
+			labelType: string;
+			type: string;
+		};
+	}>;
+	updatedAt: Date;
 }
 
-// Create and export database class
+// Create and export the database class
 export class EditorDatabase extends Dexie {
-  editorContent!: Table<EditorContent>;
+	editorContent!: Table<EditorContent>;
 
-  constructor() {
-    super('EditorDatabase');
-    this.version(2).stores({
-      editorContent: '++id, updatedAt'
-    }).upgrade(tx => {
-      return tx.table('editorContent').toCollection().modify(doc => {
-        doc.highlights = [];
-      });
-    });
-  }
+	constructor() {
+		super("EditorDatabase");
+		this.version(1).stores({
+			editorContent: "++id, updatedAt",
+		});
+
+		// Log schema info after initialization
+		console.log(
+			"Database initialized with schema:",
+			this.tables.map((table) => ({
+				name: table.name,
+				schema: table.schema,
+			}))
+		);
+	}
 }
 
-// Create and export a db instance
-export const db = new EditorDatabase(); 
+// Create and export a single instance
+export const db = new EditorDatabase();
