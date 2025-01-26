@@ -16,7 +16,6 @@ import {
 import { Decoration } from "@remirror/pm/view";
 import { db } from "./db";
 import { useLiveQuery } from "dexie-react-hooks";
-import "remirror/styles/all.css";
 import { mix, transparentize } from "color2k";
 
 type AppProps = {
@@ -132,7 +131,7 @@ const HighlightButtons = () => {
 	};
 
 	return (
-		<div className="my-3">
+		<div>
 			{LABEL_CONFIGS.map((label) => {
 				// Check if there are any highlights of this type at the current selection
 				const active = highlightsAt.some(
@@ -292,18 +291,22 @@ const App = ({ placeholder }: AppProps) => {
 	console.log("state:", state);
 
 	return (
-		<div className="remirror-theme p-12 mx-auto">
+		<div className="p-4 md:p-8 lg:p-12 mx-auto">
 			<ResetDatabaseButton />
-			<Remirror
-				manager={manager}
-				state={state}
-				onChange={handleChange}
-				placeholder={placeholder || "Enter text..."}
-			>
-				<EditorComponent />
-				<HighlightButtons />
-				<OnChangeJSON onChange={handleEditorChange} />
-			</Remirror>
+			<div className="remirror-theme">
+				<Remirror
+					manager={manager}
+					state={state}
+					onChange={handleChange}
+					placeholder={placeholder || "Enter text..."}
+				>
+					<EditorComponent />
+					<div className="border-t border-gray-200 p-3">
+						<HighlightButtons />
+					</div>
+					<OnChangeJSON onChange={handleEditorChange} />
+				</Remirror>
+			</div>
 		</div>
 	);
 };
