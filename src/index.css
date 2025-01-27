@@ -8,7 +8,7 @@
 	font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
 	line-height: 1.5;
 	font-weight: 400;
-	background-color: #f5f3f2;
+	background-color: #ebebed;
 
 	font-synthesis: none;
 	text-rendering: optimizeLegibility;
@@ -43,8 +43,7 @@
 	background-color: var(--rmr-color-background);
 	border: 1px solid var(--rmr-color-border);
 	border-radius: 0.5rem;
-	box-shadow: 0 12px 16px -2px rgba(62, 16, 16, 0.04),
-		0 1px 5px 0 rgba(62, 16, 16, 0.15);
+	box-shadow: 0 12px 16px -2px rgba(24, 16, 62, 0.05);
 }
 
 .remirror-editor-wrapper {
