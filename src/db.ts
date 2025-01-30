@@ -1,5 +1,6 @@
 import Dexie, { type Table } from "dexie";
 import type { RemirrorJSON } from "remirror";
+import type { Relationship } from "./utils/relationshipTypes";
 
 // Define types for our database content
 export interface EditorContent {
@@ -13,6 +14,7 @@ export interface EditorContent {
 			type: string;
 		};
 	}>;
+	relationships: Relationship[];
 	updatedAt: Date;
 }
 
@@ -22,7 +24,7 @@ export class EditorDatabase extends Dexie {
 
 	constructor() {
 		super("EditorDatabase");
-		this.version(1).stores({
+		this.version(2).stores({
 			editorContent: "++id, updatedAt",
 		});
 

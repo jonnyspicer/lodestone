@@ -5,9 +5,11 @@ export type LabelConfig = {
 };
 
 export const LABEL_CONFIGS: LabelConfig[] = [
-	{ id: "claim", name: "Claim", color: "#FFE25B" },
+	{ id: "claim", name: "Claim", color: "#FADF18" },
 	{ id: "evidence", name: "Evidence", color: "#1BE2C9" },
-	{ id: "question", name: "Question", color: "#78DEFF" },
-	{ id: "counterargument", name: "Counter Argument", color: "#ff8a65" },
-	{ id: "implication", name: "Implication", color: "#FF8B38" },
+	{ id: "assumption", name: "Assumption", color: "#7E4CE9" },
+	{ id: "implication", name: "Implication", color: "#83E927" },
+	{ id: "question", name: "Question", color: "#27B9E9" },
+	{ id: "counterargument", name: "Counter Argument", color: "#E92727" },
+	{ id: "cause", name: "Cause", color: "#FF8B38" },
 ];
