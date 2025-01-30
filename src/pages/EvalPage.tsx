@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { EditorContent } from "../db";
 import type { Relationship } from "../utils/relationshipTypes";
 import { PROMPT_TEMPLATES } from "../evals/prompts";
 import { TEST_CASES } from "../evals/testCases";
+import { modelServices, type ModelName } from "../services/models";
+import { getApiKey, getAvailableModels } from "../config/env";
 
 interface ModelResult {
 	modelName: string;
@@ -14,36 +16,100 @@ interface ModelResult {
 	error?: string;
 }
 
+interface LoadingState {
+	[key: string]: {
+		status:
+			| "idle"
+			| "sending"
+			| "waiting"
+			| "processing"
+			| "complete"
+			| "error";
+		message?: string;
+	};
+}
+
 export const EvalPage = () => {
 	const [results, setResults] = useState<ModelResult[]>([]);
-	const [isLoading, setIsLoading] = useState(false);
+	const [loadingStates, setLoadingStates] = useState<LoadingState>({});
 	const [selectedTest, setSelectedTest] = useState(TEST_CASES[0]);
 	const [selectedPrompt, setSelectedPrompt] = useState(PROMPT_TEMPLATES[0]);
 	const [customPrompt, setCustomPrompt] = useState("");
 	const [isCustomPrompt, setIsCustomPrompt] = useState(false);
+	const [availableModels, setAvailableModels] = useState<ModelName[]>([]);
+	const [initError, setInitError] = useState<string | null>(null);
 
-	const evaluateModel = async (modelName: string) => {
-		setIsLoading(true);
+	useEffect(() => {
 		try {
+			const models = getAvailableModels();
+			if (models.length === 0) {
+				setInitError(
+					"No models available. Please check your API keys in the .env file."
+				);
+			} else {
+				setAvailableModels(models);
+				setInitError(null);
+			}
+		} catch (error) {
+			setInitError(
+				error instanceof Error ? error.message : "Failed to initialize models"
+			);
+		}
+	}, []);
+
+	const evaluateModel = async (modelName: ModelName) => {
+		console.log(`Starting evaluation for ${modelName}...`);
+		setLoadingStates((prev) => ({
+			...prev,
+			[modelName]: { status: "sending", message: "Sending request..." },
+		}));
+
+		try {
+			const service = modelServices[modelName];
 			const promptToUse = isCustomPrompt
 				? customPrompt
 				: selectedPrompt.template.replace("{{text}}", selectedTest.text);
 
-			console.log(`Evaluating with prompt: ${promptToUse}`);
+			console.log(`${modelName}: Getting API key...`);
+			const apiKey = getApiKey(modelName);
 
-			// TODO: Implement model API calls
+			console.log(`${modelName}: Sending request to API...`);
+			setLoadingStates((prev) => ({
+				...prev,
+				[modelName]: {
+					status: "waiting",
+					message: "Waiting for model response...",
+				},
+			}));
+
+			const output = await service.analyze(selectedTest.text, promptToUse, {
+				apiKey,
+			});
+
+			console.log(`${modelName}: Received response:`, output);
+			setLoadingStates((prev) => ({
+				...prev,
+				[modelName]: { status: "complete" },
+			}));
+
 			setResults((prev) => [
 				...prev,
 				{
 					modelName,
 					promptId: isCustomPrompt ? "custom" : selectedPrompt.id,
-					output: {
-						highlights: [],
-						relationships: [],
-					},
+					output,
 				},
 			]);
 		} catch (error) {
+			console.error(`${modelName}: Error during evaluation:`, error);
+			setLoadingStates((prev) => ({
+				...prev,
+				[modelName]: {
+					status: "error",
+					message: error instanceof Error ? error.message : "Unknown error",
+				},
+			}));
+
 			setResults((prev) => [
 				...prev,
 				{
@@ -56,10 +122,22 @@ export const EvalPage = () => {
 					error: error instanceof Error ? error.message : "Unknown error",
 				},
 			]);
-		} finally {
-			setIsLoading(false);
 		}
 	};
+
+	if (initError) {
+		return (
+			<div className="p-4 max-w-7xl mx-auto">
+				<div
+					className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded relative"
+					role="alert"
+				>
+					<strong className="font-bold">Error: </strong>
+					<span className="block sm:inline">{initError}</span>
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div className="p-4 max-w-7xl mx-auto">
@@ -111,7 +189,10 @@ export const EvalPage = () => {
 							}
 						}}
 						className="border p-2 rounded"
-						disabled={isLoading}
+						disabled={Object.values(loadingStates).some(
+							(state) =>
+								state.status === "sending" || state.status === "waiting"
+						)}
 					>
 						{PROMPT_TEMPLATES.map((prompt) => (
 							<option key={prompt.id} value={prompt.id}>
@@ -127,7 +208,10 @@ export const EvalPage = () => {
 						onChange={(e) => setCustomPrompt(e.target.value)}
 						className="w-full h-64 border p-2 rounded font-mono text-sm"
 						placeholder="Enter your custom prompt here..."
-						disabled={isLoading}
+						disabled={Object.values(loadingStates).some(
+							(state) =>
+								state.status === "sending" || state.status === "waiting"
+						)}
 					/>
 				) : (
 					<pre className="whitespace-pre-wrap bg-gray-100 p-2 rounded text-sm">
@@ -140,34 +224,40 @@ export const EvalPage = () => {
 			<div className="mb-8">
 				<h3 className="text-lg font-semibold mb-4">Model Evaluation</h3>
 				<div className="flex gap-2">
-					<button
-						onClick={() => evaluateModel("gpt4o-mini")}
-						disabled={isLoading}
-						className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-					>
-						Test GPT-4o-mini
-					</button>
-					<button
-						onClick={() => evaluateModel("gpt4o")}
-						disabled={isLoading}
-						className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-					>
-						Test GPT-4o
-					</button>
-					<button
-						onClick={() => evaluateModel("deepseek-r1")}
-						disabled={isLoading}
-						className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-					>
-						Test DeepSeek R1
-					</button>
-					<button
-						onClick={() => evaluateModel("claude-3.5")}
-						disabled={isLoading}
-						className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-					>
-						Test Claude 3.5
-					</button>
+					{availableModels.map((modelName) => (
+						<div key={modelName} className="flex flex-col gap-2">
+							<button
+								onClick={() => evaluateModel(modelName)}
+								disabled={
+									loadingStates[modelName]?.status === "sending" ||
+									loadingStates[modelName]?.status === "waiting"
+								}
+								className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+							>
+								Test {modelName}
+							</button>
+							{loadingStates[modelName] &&
+								loadingStates[modelName].status !== "complete" && (
+									<div className="text-sm">
+										{loadingStates[modelName].status === "sending" && (
+											<span className="text-blue-500">
+												⏳ Sending request...
+											</span>
+										)}
+										{loadingStates[modelName].status === "waiting" && (
+											<span className="text-yellow-500">
+												⌛ Waiting for response...
+											</span>
+										)}
+										{loadingStates[modelName].status === "error" && (
+											<span className="text-red-500">
+												❌ {loadingStates[modelName].message}
+											</span>
+										)}
+									</div>
+								)}
+						</div>
+					))}
 				</div>
 			</div>
 
@@ -178,11 +268,14 @@ export const EvalPage = () => {
 					<div key={index} className="mb-4">
 						<h4 className="font-medium">
 							{result.modelName} (Prompt: {result.promptId})
+							{loadingStates[result.modelName]?.status === "complete" && (
+								<span className="text-green-500 ml-2">✓</span>
+							)}
 						</h4>
 						{result.error ? (
 							<div className="text-red-500">{result.error}</div>
 						) : (
-							<pre className="whitespace-pre-wrap bg-gray-100 p-2 rounded">
+							<pre className="text-sm whitespace-pre-wrap bg-gray-100 p-2 rounded">
 								{JSON.stringify(result.output, null, 2)}
 							</pre>
 						)}
