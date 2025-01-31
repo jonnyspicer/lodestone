@@ -5,6 +5,13 @@ import type {
 	ModelName,
 } from "./types";
 
+type RawHighlight = {
+	id: string;
+	labelType: string;
+	text: string;
+	[key: string]: unknown;
+};
+
 export class OpenAIService implements ModelService {
 	name: ModelName;
 	private defaultModel: string;
@@ -127,6 +134,32 @@ export class OpenAIService implements ModelService {
 				);
 			}
 
+			// Validate that each highlight has required properties
+			const validHighlights = result.highlights.map(
+				(highlight: RawHighlight) => {
+					if (!highlight.id || !highlight.labelType || !highlight.text) {
+						console.error(
+							`OpenAI Service (${this.name}): Invalid highlight format:`,
+							highlight
+						);
+						throw new Error(
+							`Highlight missing required properties (id, labelType, text). Raw content: ${JSON.stringify(
+								highlight
+							).slice(0, 200)}...`
+						);
+					}
+					return {
+						id: highlight.id,
+						labelType: highlight.labelType,
+						text: highlight.text,
+						attrs: {
+							labelType: highlight.labelType,
+							type: highlight.labelType,
+						},
+					};
+				}
+			);
+
 			if (!result.relationships || !Array.isArray(result.relationships)) {
 				console.error(
 					`OpenAI Service (${this.name}): Missing or invalid relationships:`,
@@ -143,7 +176,7 @@ export class OpenAIService implements ModelService {
 				`OpenAI Service (${this.name}): Successfully parsed response`
 			);
 			return {
-				highlights: result.highlights,
+				highlights: validHighlights,
 				relationships: result.relationships,
 			};
 		} catch (err) {

@@ -1,31 +1,73 @@
 import Dexie, { type Table } from "dexie";
 import type { RemirrorJSON } from "remirror";
+import type { ModelName, HighlightWithText } from "./services/models/types";
 import type { Relationship } from "./utils/relationshipTypes";
 
 // Define types for our database content
 export interface EditorContent {
 	id?: number;
 	content: RemirrorJSON;
-	highlights: Array<{
-		id: string;
-		labelType: string;
-		attrs?: {
-			labelType: string;
-			type: string;
-		};
-	}>;
+	highlights: HighlightWithText[];
 	relationships: Relationship[];
+	updatedAt: Date;
+}
+
+// Define the Session type
+export interface Session {
+	id?: number;
+	title: string;
+	createdAt: Date;
+	status: "input" | "analysis";
+	highlightCount: number;
+
+	// Input step content
+	inputContent: {
+		content: RemirrorJSON;
+		updatedAt: Date;
+	};
+
+	// Analysis content (optional until analysis is performed)
+	analyzedContent?: AnalyzedContent;
+
+	lastModified: Date;
+}
+
+export interface AnalyzedContent {
+	modelName: ModelName;
+	promptId: string;
+	content: RemirrorJSON;
+	highlights: HighlightWithText[];
+	relationships: Relationship[];
+	highlightCount: number;
 	updatedAt: Date;
 }
 
 // Create and export the database class
 export class EditorDatabase extends Dexie {
 	editorContent!: Table<EditorContent>;
+	sessions!: Table<Session>;
 
 	constructor() {
 		super("EditorDatabase");
-		this.version(2).stores({
+
+		// Define schemas for all tables
+		this.version(8).stores({
 			editorContent: "++id, updatedAt",
+			sessions: "++id, createdAt, status, lastModified, highlightCount",
+		});
+
+		// Add hooks to ensure content is properly handled
+		this.sessions.hook("reading", (obj) => {
+			if (obj.analyzedContent?.content) {
+				// Ensure the content is properly structured
+				if (!obj.analyzedContent.content.type) {
+					obj.analyzedContent.content = {
+						type: "doc",
+						content: [],
+					};
+				}
+			}
+			return obj;
 		});
 
 		// Log schema info after initialization

@@ -1,10 +1,21 @@
-import type { EditorContent } from "../../db";
 import type { Relationship } from "../../utils/relationshipTypes";
 
 export type ModelName = "gpt4o-mini" | "gpt-4o" | "claude-3.5";
 
+export type HighlightWithText = {
+	id: string;
+	labelType: string;
+	text: string;
+	startIndex?: number;
+	endIndex?: number;
+	attrs?: {
+		labelType: string;
+		type: string;
+	};
+};
+
 export interface ModelResponse {
-	highlights: EditorContent["highlights"];
+	highlights: HighlightWithText[];
 	relationships: Relationship[];
 }
 

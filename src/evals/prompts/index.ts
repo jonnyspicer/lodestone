@@ -1,7 +1,8 @@
-import { basicPrompt } from "./basic";
+export { detailedPrompt } from "./detailed";
+export { basicPrompt } from "./basic";
+export type { PromptTemplate } from "./types";
+
 import { detailedPrompt } from "./detailed";
-import type { PromptTemplate } from "./types";
+import { basicPrompt } from "./basic";
 
-export const PROMPT_TEMPLATES: PromptTemplate[] = [basicPrompt, detailedPrompt];
-
-export type { PromptTemplate };
+export const PROMPT_TEMPLATES = [detailedPrompt, basicPrompt] as const;
