@@ -115,7 +115,15 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 
 			// Extract text content from the editor
 			const textContent =
-				content.content?.content?.[0]?.content?.[0]?.text || "";
+				content.content?.content
+					?.map((paragraph) =>
+						paragraph.content
+							?.map((node) => node.text)
+							.filter(Boolean)
+							.join("")
+					)
+					.filter(Boolean)
+					.join("\n") || "";
 
 			// Log the content being analyzed
 			console.log("📝 Content being analyzed:", {
@@ -147,15 +155,7 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 				parseInt(id),
 				"gpt4o-mini",
 				detailedPrompt.id,
-				{
-					type: "doc",
-					content: [
-						{
-							type: "paragraph",
-							content: [{ type: "text", text: textContent }],
-						},
-					],
-				},
+				content.content,
 				analysis.highlights,
 				analysis.relationships
 			);

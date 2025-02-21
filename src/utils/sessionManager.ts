@@ -6,10 +6,11 @@ import type { Relationship } from "../utils/relationshipTypes";
 type HighlightType = HighlightWithText[];
 
 interface HighlightMark {
-	type: "highlight";
+	type: "entity-reference";
 	attrs: {
 		id: string;
 		labelType: string;
+		type: string;
 	};
 }
 
@@ -110,17 +111,6 @@ export class SessionManager {
 			firstHighlightLength: highlights[0]?.text.length,
 		});
 
-		// Create a new content structure with highlights as marks
-		const contentWithHighlights: RemirrorJSON = {
-			type: "doc",
-			content: [
-				{
-					type: "paragraph",
-					content: [],
-				},
-			],
-		};
-
 		// Sort highlights by their position in the text
 		const sortedHighlights = [...highlights].sort((a, b) => {
 			const aIndex = fullText.indexOf(a.text);
@@ -128,50 +118,81 @@ export class SessionManager {
 			return aIndex - bIndex;
 		});
 
-		let currentPosition = 0;
-		const paragraphContent = contentWithHighlights.content![0].content!;
+		// Create a new content structure with highlights as marks
+		const contentWithHighlights: RemirrorJSON = {
+			type: "doc",
+			content:
+				content.content?.map((paragraph) => {
+					if (paragraph.type === "paragraph" && paragraph.content) {
+						let currentPosition = 0;
+						const newContent: Array<{
+							type: "text";
+							text: string;
+							marks?: Array<{
+								type: string;
+								attrs: {
+									id: string;
+									labelType: string;
+									type: string;
+								};
+							}>;
+						}> = [];
+						const paragraphText = paragraph.content
+							.map((node) => node.text)
+							.filter(Boolean)
+							.join("");
 
-		// Process text and add highlights
-		for (const highlight of sortedHighlights) {
-			const highlightStart = fullText.indexOf(highlight.text, currentPosition);
-			if (highlightStart === -1) {
-				console.warn("⚠️ Could not find highlight in text:", highlight);
-				continue;
-			}
+						// Process text and add highlights for this paragraph
+						for (const highlight of sortedHighlights) {
+							const highlightStart = paragraphText.indexOf(
+								highlight.text,
+								currentPosition
+							);
+							if (highlightStart === -1) continue;
 
-			// Add text before highlight if any
-			if (highlightStart > currentPosition) {
-				paragraphContent.push({
-					type: "text",
-					text: fullText.slice(currentPosition, highlightStart),
-				});
-			}
+							// Add text before highlight if any
+							if (highlightStart > currentPosition) {
+								newContent.push({
+									type: "text",
+									text: paragraphText.slice(currentPosition, highlightStart),
+								});
+							}
 
-			// Add highlighted text
-			paragraphContent.push({
-				type: "text",
-				text: highlight.text,
-				marks: [
-					{
-						type: "entity-reference",
-						attrs: {
-							id: highlight.id,
-							labelType: highlight.labelType,
-						},
-					},
-				],
-			});
+							// Add highlighted text
+							newContent.push({
+								type: "text",
+								text: highlight.text,
+								marks: [
+									{
+										type: "entity-reference",
+										attrs: {
+											id: highlight.id,
+											labelType: highlight.labelType,
+											type: highlight.labelType,
+										},
+									},
+								],
+							});
 
-			currentPosition = highlightStart + highlight.text.length;
-		}
+							currentPosition = highlightStart + highlight.text.length;
+						}
 
-		// Add remaining text if any
-		if (currentPosition < fullText.length) {
-			paragraphContent.push({
-				type: "text",
-				text: fullText.slice(currentPosition),
-			});
-		}
+						// Add remaining text if any
+						if (currentPosition < paragraphText.length) {
+							newContent.push({
+								type: "text",
+								text: paragraphText.slice(currentPosition),
+							});
+						}
+
+						return {
+							...paragraph,
+							content: newContent,
+						};
+					}
+					return paragraph;
+				}) || [],
+		};
 
 		const update: Session = {
 			...session,
@@ -213,59 +234,161 @@ export class SessionManager {
 		highlights: HighlightType,
 		relationships: Relationship[]
 	): Promise<void> {
+		console.log("🔄 Updating analyzed content:", {
+			sessionId,
+			contentType: content.type,
+			highlightCount: highlights?.length,
+			highlights: highlights?.map((h) => ({
+				id: h.id,
+				type: h.labelType,
+				text: h.text?.slice(0, 20) + "...",
+			})),
+		});
+
 		const session = await this.getSession(sessionId);
 		if (!session?.analyzedContent) {
 			throw new Error("No analyzed content exists to update");
 		}
 
-		// Calculate highlight count
-		const highlightCount = highlights?.length || 0;
+		// Merge existing highlights with new ones, preserving labelTypes
+		const existingHighlights = new Map(
+			session.analyzedContent.highlights.map((h) => [h.id, h])
+		);
+
+		// Update or add new highlights
+		const mergedHighlights = highlights.map((highlight) => {
+			const existing = existingHighlights.get(highlight.id);
+			if (existing) {
+				// Preserve the existing labelType if the new one is undefined
+				return {
+					...highlight,
+					labelType: highlight.labelType || existing.labelType,
+					attrs: {
+						labelType: highlight.labelType || existing.labelType,
+						type: highlight.labelType || existing.labelType,
+					},
+				};
+			}
+			return highlight;
+		});
+
+		// Get the full text content to help with positioning
+		const fullText =
+			content.content
+				?.map((paragraph) =>
+					paragraph.content?.map((node) => node.text).join("")
+				)
+				.join("\n") || "";
+
+		// Sort highlights by their position in the text
+		const sortedHighlights = [...mergedHighlights].sort((a, b) => {
+			const aIndex = fullText.indexOf(a.text);
+			const bIndex = fullText.indexOf(b.text);
+			return aIndex - bIndex;
+		});
 
 		// Convert highlights into marks within the RemirrorJSON structure
-		const contentWithHighlights = {
-			...content,
-			content: content.content?.map((node) => {
-				if (node.type === "paragraph" && node.content) {
-					return {
-						...node,
-						content: node.content.map((textNode) => {
-							const highlight = highlights.find(
-								(h) => h.text === textNode.text
-							);
-							if (highlight) {
-								return {
-									...textNode,
-									marks: [
-										{
-											type: "highlight",
-											attrs: {
-												id: highlight.id,
-												labelType: highlight.labelType,
-											},
-										},
-									],
+		const contentWithHighlights: RemirrorJSON = {
+			type: "doc",
+			content:
+				content.content?.map((paragraph) => {
+					if (paragraph.type === "paragraph" && paragraph.content) {
+						let currentPosition = 0;
+						const newContent: Array<{
+							type: "text";
+							text: string;
+							marks?: Array<{
+								type: string;
+								attrs: {
+									id: string;
+									labelType: string;
+									type: string;
 								};
+							}>;
+						}> = [];
+						const paragraphText = paragraph.content
+							.map((node) => node.text)
+							.filter(Boolean)
+							.join("");
+
+						// Process text and add highlights for this paragraph
+						for (const highlight of sortedHighlights) {
+							const highlightStart = paragraphText.indexOf(
+								highlight.text,
+								currentPosition
+							);
+							if (highlightStart === -1) continue;
+
+							// Add text before highlight if any
+							if (highlightStart > currentPosition) {
+								newContent.push({
+									type: "text",
+									text: paragraphText.slice(currentPosition, highlightStart),
+								});
 							}
-							return textNode;
-						}),
-					};
-				}
-				return node;
-			}),
+
+							// Add highlighted text with proper mark type
+							newContent.push({
+								type: "text",
+								text: highlight.text,
+								marks: [
+									{
+										type: "entity-reference",
+										attrs: {
+											id: highlight.id,
+											labelType: highlight.labelType,
+											type: highlight.labelType,
+										},
+									},
+								],
+							});
+
+							currentPosition = highlightStart + highlight.text.length;
+						}
+
+						// Add remaining text if any
+						if (currentPosition < paragraphText.length) {
+							newContent.push({
+								type: "text",
+								text: paragraphText.slice(currentPosition),
+							});
+						}
+
+						return {
+							...paragraph,
+							content: newContent,
+						};
+					}
+					return paragraph;
+				}) || [],
 		};
 
-		await db.sessions.update(sessionId, {
+		const update = {
 			...session,
-			highlightCount,
+			highlightCount: mergedHighlights.length,
 			analyzedContent: {
 				...session.analyzedContent,
 				content: contentWithHighlights,
+				highlights: mergedHighlights,
 				relationships,
-				highlightCount,
+				highlightCount: mergedHighlights.length,
 				updatedAt: new Date(),
 			},
 			lastModified: new Date(),
+		};
+
+		console.log("💾 Saving session update:", {
+			sessionId,
+			highlightCount: update.highlightCount,
+			contentHighlightCount: mergedHighlights.length,
+			highlights: mergedHighlights.map((h) => ({
+				id: h.id,
+				type: h.labelType,
+				text: h.text.slice(0, 20) + "...",
+			})),
 		});
+
+		await db.sessions.update(sessionId, update);
 	}
 
 	/**
@@ -349,18 +472,23 @@ export class SessionManager {
 						const highlightMark = textNode.marks?.find(
 							(mark): mark is HighlightMark =>
 								typeof mark === "object" &&
-								mark.type === "entityReference" &&
+								mark.type === "entity-reference" &&
 								"attrs" in mark &&
 								typeof mark.attrs === "object" &&
 								mark.attrs !== null &&
 								"id" in mark.attrs &&
-								"labelType" in mark.attrs
+								"labelType" in mark.attrs &&
+								"type" in mark.attrs
 						);
 						if (highlightMark && textNode.text) {
 							highlights.push({
 								id: highlightMark.attrs.id,
 								labelType: highlightMark.attrs.labelType,
 								text: textNode.text,
+								attrs: {
+									labelType: highlightMark.attrs.labelType,
+									type: highlightMark.attrs.type,
+								},
 							});
 						}
 					});

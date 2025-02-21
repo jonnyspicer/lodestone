@@ -28,37 +28,100 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 					highlightMap.delete(highlight.id);
 				});
 			} else {
+				const state = getState();
+				const { from, to } = state.selection;
+				const selectedText = state.doc.textBetween(from, to);
+
+				console.log("🎯 Adding highlight:", {
+					labelId,
+					selectedText,
+					from,
+					to,
+				});
+
 				const id = crypto.randomUUID();
+				// Create highlight with consistent type and attributes
+				const highlight = {
+					id,
+					labelType: labelId,
+					text: selectedText,
+					startIndex: from,
+					endIndex: to,
+					attrs: {
+						labelType: labelId,
+						type: labelId,
+					},
+				};
+
 				commands.addEntityReference(id, {
 					id,
 					labelType: labelId,
-					type: labelId,
+					type: "entity-reference",
 					attrs: {
 						labelType: labelId,
 						type: labelId,
 					},
 				});
 				highlightMap.set(id, labelId);
+
+				// Extract all highlights from the document
+				const currentHighlights: Array<{
+					id: string;
+					labelType: string;
+					text: string;
+					startIndex: number;
+					endIndex: number;
+					attrs?: {
+						labelType: string;
+						type: string;
+					};
+				}> = [];
+
+				// First add all existing highlights from the document
+				state.doc.descendants((node, pos) => {
+					if (node.marks && node.isText && node.text) {
+						const entityMarks = node.marks.filter(
+							(mark) => mark.type.name === "entity-reference"
+						);
+
+						entityMarks.forEach((mark) => {
+							currentHighlights.push({
+								id: mark.attrs.id,
+								labelType: mark.attrs.labelType,
+								text: node.text!,
+								startIndex: pos,
+								endIndex: pos + node.text!.length,
+								attrs: {
+									labelType: mark.attrs.labelType,
+									type: mark.attrs.type,
+								},
+							});
+						});
+					}
+					return true;
+				});
+
+				// Add the new highlight
+				currentHighlights.push(highlight);
+
+				const json = state.doc.toJSON();
+				const contentWithHighlights = {
+					...json,
+					highlights: currentHighlights,
+				};
+
+				console.log("💾 Saving highlights:", {
+					count: currentHighlights.length,
+					highlights: currentHighlights.map((h) => ({
+						id: h.id,
+						type: h.labelType,
+						text: h.text.slice(0, 20) + "...",
+					})),
+					mapSize: highlightMap.size,
+				});
+
+				onSave(contentWithHighlights);
 			}
-
-			const state = getState();
-			const json = state.doc.toJSON();
-
-			const contentWithHighlights = {
-				...json,
-				highlights: Array.from(highlightMap.entries()).map(
-					([id, labelType]) => ({
-						id,
-						labelType,
-						attrs: {
-							labelType,
-							type: labelType,
-						},
-					})
-				),
-			};
-
-			onSave(contentWithHighlights);
 		},
 		[commands, highlightsAt, onSave, getState]
 	);

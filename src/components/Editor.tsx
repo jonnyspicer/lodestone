@@ -11,7 +11,6 @@ import type {
 	RemirrorEventListener,
 	RemirrorEventListenerProps,
 } from "@remirror/core";
-import type { Mark } from "@remirror/pm/model";
 import { highlightMap } from "../utils/highlightMap";
 import { HighlightButtons } from "./HighlightButtons";
 import { decorateHighlights } from "../utils/decorateHighlights";
@@ -84,14 +83,21 @@ const Editor = forwardRef<
 		console.log("🎯 Initializing highlights:", props.highlights);
 
 		// Get the document content
-		const content = props.initialContent.content?.[0]?.content?.[0]?.text || "";
-		console.log("📝 Document content:", {
-			length: content.length,
-			content: content.slice(0, 50) + "...",
-		});
+		const fullText =
+			props.initialContent.content
+				?.map((paragraph) =>
+					paragraph.content
+						?.map((node) => node.text)
+						.filter(Boolean)
+						.join("")
+				)
+				.filter(Boolean)
+				.join("\n") || "";
 
-		// Clear existing highlights
-		highlightMap.clear();
+		console.log("📝 Document content:", {
+			length: fullText.length,
+			content: fullText.slice(0, 50) + "...",
+		});
 
 		// Create a new state with highlights
 		const tr = state.tr;
@@ -103,17 +109,14 @@ const Editor = forwardRef<
 				return;
 			}
 
-			highlightMap.set(highlight.id, highlight.labelType);
+			// Only set in map if it doesn't exist already
+			if (!highlightMap.has(highlight.id)) {
+				highlightMap.set(highlight.id, highlight.labelType);
+			}
 
 			// Find position of highlight in content
-			const match = findBestMatch(highlight.text, content);
+			const match = findBestMatch(highlight.text, fullText);
 			if (match.index !== -1) {
-				console.log("✨ Adding highlight:", {
-					id: highlight.id,
-					text: highlight.text,
-					at: { from: match.index, to: match.index + match.length },
-				});
-
 				const markType = state.schema.marks.entityReference;
 				if (markType) {
 					tr.addMark(
@@ -139,6 +142,7 @@ const Editor = forwardRef<
 			console.log("✨ Applied highlights to editor:", {
 				attempted: props.highlights.length,
 				applied: appliedCount,
+				mapSize: highlightMap.size,
 			});
 			setState(state.apply(tr));
 		} else {
@@ -155,16 +159,9 @@ const Editor = forwardRef<
 	};
 
 	const findBestMatch = (searchText: string, inText: string): Match => {
-		console.log("🔍 Finding match for:", {
-			searchText,
-			searchLength: searchText.length,
-			inTextLength: inText.length,
-		});
-
 		// Try exact match first
 		const exactIndex = inText.indexOf(searchText);
 		if (exactIndex !== -1) {
-			console.log("✅ Found exact match at:", exactIndex);
 			return {
 				index: exactIndex,
 				length: searchText.length,
@@ -177,7 +174,6 @@ const Editor = forwardRef<
 		const normalizedText = inText.toLowerCase();
 		const normalizedIndex = normalizedText.indexOf(normalizedSearch);
 		if (normalizedIndex !== -1) {
-			console.log("✅ Found normalized match at:", normalizedIndex);
 			return {
 				index: normalizedIndex,
 				length: searchText.trim().length,
@@ -205,92 +201,150 @@ const Editor = forwardRef<
 			}
 		}
 
-		if (bestMatch.index !== -1) {
-			console.log("✅ Found partial match:", {
-				text: inText.slice(bestMatch.index, bestMatch.index + bestMatch.length),
-				at: bestMatch.index,
-			});
-		} else {
-			console.log("❌ No match found for:", searchText);
-		}
-
 		return bestMatch;
 	};
 
 	const handleChange: RemirrorEventListener<EntityReferenceExtension> =
 		useCallback(
 			(parameter: RemirrorEventListenerProps<EntityReferenceExtension>) => {
+				// Check if this is just a selection change by looking at the transaction metadata
+				const tr = parameter.tr;
+				const isSelectionChangeOnly = tr?.selectionSet && !tr?.docChanged;
+
+				console.log("🔄 Editor Change Event:", {
+					type: tr?.getMeta("origin"),
+					isSelectionChangeOnly,
+					selectionFrom: parameter.state.selection.from,
+					selectionTo: parameter.state.selection.to,
+					hasStoredMarks: tr?.storedMarksSet,
+					docChanged: tr?.docChanged,
+					marks: parameter.state.selection.$from.marks(),
+					storedMarks: parameter.state.storedMarks,
+					transaction: {
+						docChanged: tr?.docChanged,
+						selectionSet: tr?.selectionSet,
+						storedMarksSet: tr?.storedMarksSet,
+						steps: tr?.steps.map((step) => step.toJSON()),
+					},
+				});
+
+				// Always update the editor state
 				setState(parameter.state);
 				onChange?.(parameter);
 
-				// Track current highlights in the editor
-				const currentHighlights: Highlight[] = [];
+				// Don't process changes if it's just a selection change
+				if (isSelectionChangeOnly) {
+					return;
+				}
 
-				// First collect all marks and their positions
-				const markPositions: { mark: Mark; from: number; to: number }[] = [];
-				let charPos = 0;
-				parameter.state.doc.descendants((node) => {
-					if (node.marks) {
-						node.marks.forEach((mark) => {
-							if (
+				// Start with existing highlights from props
+				const existingHighlights = new Map(
+					props.highlights?.map((h) => [h.id, h]) || []
+				);
+
+				// Extract current highlights from the editor state
+				const currentHighlights: Highlight[] = [];
+				const seenIds = new Set<string>();
+
+				// Log the document structure
+				console.log("📄 Document Structure:", {
+					nodeCount: parameter.state.doc.nodeSize,
+					content: parameter.state.doc.content.toJSON(),
+					selection: {
+						from: parameter.state.selection.from,
+						to: parameter.state.selection.to,
+						empty: parameter.state.selection.empty,
+					},
+				});
+
+				// Traverse the document to find all marks
+				parameter.state.doc.descendants((node, pos) => {
+					if (node.marks && node.isText && node.text) {
+						console.log("📍 Node at position", pos, {
+							text: node.text,
+							marks: node.marks.map((m) => ({
+								type: m.type.name,
+								attrs: m.attrs,
+							})),
+						});
+
+						// Find all entity reference marks
+						const entityMarks = node.marks.filter(
+							(mark) =>
 								mark.type.name === "entity-reference" &&
 								mark.attrs.id &&
 								mark.attrs.labelType
-							) {
-								markPositions.push({
-									mark,
-									from: charPos,
-									to: charPos + node.nodeSize,
-								});
+						);
+
+						// Add each mark's highlight if we haven't seen it before
+						entityMarks.forEach((mark) => {
+							if (!seenIds.has(mark.attrs.id)) {
+								// Use existing highlight data if available
+								const existingHighlight = existingHighlights.get(mark.attrs.id);
+								if (existingHighlight) {
+									currentHighlights.push({
+										...existingHighlight,
+										startIndex: pos,
+										endIndex: pos + (node.text?.length || 0),
+									});
+								} else {
+									currentHighlights.push({
+										id: mark.attrs.id,
+										labelType: mark.attrs.labelType,
+										text: node.text || "",
+										startIndex: pos,
+										endIndex: pos + (node.text?.length || 0),
+										attrs: {
+											labelType: mark.attrs.labelType,
+											type: mark.attrs.labelType,
+										},
+									});
+								}
+								highlightMap.set(mark.attrs.id, mark.attrs.labelType);
+								seenIds.add(mark.attrs.id);
 							}
 						});
-					}
-					if (node.isText) {
-						charPos += node.text!.length;
 					}
 					return true;
 				});
 
-				// Then extract text for each mark
-				markPositions.forEach(({ mark, from, to }) => {
-					const text = parameter.state.doc.textBetween(from, to);
-					currentHighlights.push({
-						id: mark.attrs.id,
-						labelType: mark.attrs.labelType,
-						text,
-						startIndex: from,
-						endIndex: to,
-						attrs: {
-							labelType: mark.attrs.labelType,
-							type: mark.attrs.labelType,
-						},
-					});
-					highlightMap.set(mark.attrs.id, mark.attrs.labelType);
+				// Add any existing highlights that weren't found in the editor state
+				props.highlights?.forEach((highlight) => {
+					if (!seenIds.has(highlight.id)) {
+						currentHighlights.push(highlight);
+						highlightMap.set(highlight.id, highlight.labelType);
+					}
 				});
 
-				if (currentHighlights.length > 0) {
-					console.log(
-						"🎨 Current highlights in editor:",
-						currentHighlights.map((h) => ({
-							id: h.id,
-							type: h.labelType,
-							range: `${h.startIndex}-${h.endIndex}`,
-							text: h.text,
-						}))
-					);
-				}
+				console.log("📊 Current highlights in editor state:", {
+					count: currentHighlights.length,
+					highlights: currentHighlights.map((h) => ({
+						id: h.id,
+						type: h.labelType,
+						text: h.text
+							? h.text.length > 20
+								? h.text.slice(0, 20) + "..."
+								: h.text
+							: "",
+					})),
+				});
 
+				// Save if we have content
 				const json = parameter.state.doc.toJSON();
 				if (json.content?.[0]?.content?.length > 0) {
-					// Include highlights in the JSON
 					const contentWithHighlights = {
 						...json,
 						highlights: currentHighlights,
 					};
+					console.log("💾 Saving editor content:", {
+						highlightCount: currentHighlights.length,
+						isSelectionOnly: isSelectionChangeOnly,
+						content: contentWithHighlights,
+					});
 					onChangeJSON?.(contentWithHighlights);
 				}
 			},
-			[setState, onChange, onChangeJSON]
+			[setState, onChange, onChangeJSON, props.highlights]
 		);
 
 	return (
