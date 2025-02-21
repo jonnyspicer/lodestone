@@ -32,13 +32,6 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 				const { from, to } = state.selection;
 				const selectedText = state.doc.textBetween(from, to);
 
-				console.log("🎯 Adding highlight:", {
-					labelId,
-					selectedText,
-					from,
-					to,
-				});
-
 				const id = crypto.randomUUID();
 				// Create highlight with consistent type and attributes
 				const highlight = {
@@ -109,16 +102,6 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 					...json,
 					highlights: currentHighlights,
 				};
-
-				console.log("💾 Saving highlights:", {
-					count: currentHighlights.length,
-					highlights: currentHighlights.map((h) => ({
-						id: h.id,
-						type: h.labelType,
-						text: h.text.slice(0, 20) + "...",
-					})),
-					mapSize: highlightMap.size,
-				});
 
 				onSave(contentWithHighlights);
 			}

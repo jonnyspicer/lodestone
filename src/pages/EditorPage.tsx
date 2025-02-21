@@ -35,39 +35,13 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 	const session = useLiveQuery(async () => {
 		if (!id) return null;
 		const result = await SessionManager.getSession(parseInt(id));
-		console.log("🔍 Session data loaded:", {
-			id,
-			title: result?.title,
-			status: result?.status,
-			hasAnalyzedContent: !!result?.analyzedContent,
-			highlightCount:
-				result?.analyzedContent?.content?.content?.reduce(
-					(count, node) =>
-						count +
-						(node.content?.filter((textNode) =>
-							textNode.marks?.some(
-								(mark) => typeof mark === "object" && mark.type === "highlight"
-							)
-						).length || 0),
-					0
-				) ?? 0,
-		});
+
 		return result;
 	}, [id]);
 
 	const content = useLiveQuery(async () => {
 		if (!id) return null;
 		const result = await SessionManager.getEffectiveContent(parseInt(id));
-		console.log("📄 Effective content loaded:", {
-			mode,
-			hasContent: !!result.content,
-			highlightCount: result.highlights?.length ?? 0,
-			highlights: result.highlights?.map((h) => ({
-				id: h.id,
-				type: h.labelType,
-				text: h.text?.slice(0, 20) + "...",
-			})),
-		});
 		return result;
 	}, [id]);
 
@@ -77,17 +51,6 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 
 			// Extract highlights from the editor state
 			const highlights = json.highlights || [];
-
-			console.log("✏️ Editor change:", {
-				mode,
-				highlightCount: highlights.length,
-				action: highlights.length === 0 ? "clearing" : "updating",
-				highlights: highlights.map((h) => ({
-					id: h.id,
-					type: h.labelType,
-					text: h.text?.slice(0, 20) + "...",
-				})),
-			});
 
 			if (mode === "input") {
 				await SessionManager.updateInputContent(parseInt(id), json);
@@ -125,12 +88,6 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 					.filter(Boolean)
 					.join("\n") || "";
 
-			// Log the content being analyzed
-			console.log("📝 Content being analyzed:", {
-				length: textContent.length,
-				content: textContent,
-			});
-
 			// Prepare the prompt by replacing the text placeholder
 			const prompt = detailedPrompt.template.replace("{{text}}", textContent);
 
@@ -145,11 +102,6 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 			// Send to OpenAI with API key
 			const analysis = await service.analyze(textContent, prompt, { apiKey });
 
-			console.log("📊 Analysis results:", {
-				highlights: analysis.highlights,
-				relationships: analysis.relationships,
-			});
-
 			// Save the analysis results
 			await SessionManager.saveAnalysis(
 				parseInt(id),
@@ -159,32 +111,6 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 				analysis.highlights,
 				analysis.relationships
 			);
-
-			// Verify the session state after saving
-			const updatedSession = await SessionManager.getSession(parseInt(id));
-			console.log("📝 Session after saving analysis:", {
-				hasAnalyzedContent: !!updatedSession?.analyzedContent,
-				highlightCount:
-					updatedSession?.analyzedContent?.content?.content?.reduce(
-						(count, node) =>
-							count +
-							(node.content?.filter((textNode) =>
-								textNode.marks?.some(
-									(mark) =>
-										typeof mark === "object" && mark.type === "highlight"
-								)
-							).length || 0),
-						0
-					) ?? 0,
-				highlights: updatedSession?.analyzedContent?.content?.content?.flatMap(
-					(node) =>
-						node.content?.filter((textNode) =>
-							textNode.marks?.some(
-								(mark) => typeof mark === "object" && mark.type === "highlight"
-							)
-						) || []
-				),
-			});
 
 			// Navigate to analysis view
 			navigate(`/sessions/${id}/analysis`);

@@ -85,15 +85,6 @@ export class SessionManager {
 		// Calculate highlight count
 		const highlightCount = highlights?.length || 0;
 
-		console.log("💾 Saving analysis with data:", {
-			sessionId,
-			modelName,
-			promptId,
-			highlightCount,
-			firstHighlight: highlights?.[0],
-			relationshipCount: relationships?.length,
-		});
-
 		// Get the full text content
 		const fullText =
 			content.content
@@ -101,15 +92,6 @@ export class SessionManager {
 					paragraph.content?.map((node) => node.text).join("")
 				)
 				.join("\n") || "";
-
-		console.log("🔄 Content transformation:", {
-			originalContent: content,
-			fullText,
-			textLength: fullText.length,
-			highlightCount: highlights.length,
-			firstHighlightText: highlights[0]?.text,
-			firstHighlightLength: highlights[0]?.text.length,
-		});
 
 		// Sort highlights by their position in the text
 		const sortedHighlights = [...highlights].sort((a, b) => {
@@ -210,18 +192,6 @@ export class SessionManager {
 			lastModified: new Date(),
 		};
 
-		console.log("📝 Full update object:", {
-			id: update.id,
-			status: update.status,
-			highlightCount: update.highlightCount,
-			analyzedContent: update.analyzedContent && {
-				modelName: update.analyzedContent.modelName,
-				promptId: update.analyzedContent.promptId,
-				highlightCount: update.analyzedContent.highlightCount,
-				relationships: update.analyzedContent.relationships,
-			},
-		});
-
 		await db.sessions.update(sessionId, update);
 	}
 
@@ -234,17 +204,6 @@ export class SessionManager {
 		highlights: HighlightType,
 		relationships: Relationship[]
 	): Promise<void> {
-		console.log("🔄 Updating analyzed content:", {
-			sessionId,
-			contentType: content.type,
-			highlightCount: highlights?.length,
-			highlights: highlights?.map((h) => ({
-				id: h.id,
-				type: h.labelType,
-				text: h.text?.slice(0, 20) + "...",
-			})),
-		});
-
 		const session = await this.getSession(sessionId);
 		if (!session?.analyzedContent) {
 			throw new Error("No analyzed content exists to update");
@@ -377,17 +336,6 @@ export class SessionManager {
 			lastModified: new Date(),
 		};
 
-		console.log("💾 Saving session update:", {
-			sessionId,
-			highlightCount: update.highlightCount,
-			contentHighlightCount: mergedHighlights.length,
-			highlights: mergedHighlights.map((h) => ({
-				id: h.id,
-				type: h.labelType,
-				text: h.text.slice(0, 20) + "...",
-			})),
-		});
-
 		await db.sessions.update(sessionId, update);
 	}
 
@@ -430,40 +378,7 @@ export class SessionManager {
 		const session = await this.getSession(sessionId);
 		if (!session) throw new Error("Session not found");
 
-		console.log("🔍 Full session data in getEffectiveContent:", {
-			id: session.id,
-			status: session.status,
-			hasAnalyzedContent: !!session.analyzedContent,
-			analyzedContent: session.analyzedContent && {
-				highlightCount: session.analyzedContent.highlightCount,
-				storedHighlights: session.analyzedContent.highlights?.length,
-				contentHighlights:
-					session.analyzedContent.content.content?.[0]?.content?.filter(
-						(node) =>
-							node.marks?.some(
-								(mark) =>
-									typeof mark === "object" &&
-									"type" in mark &&
-									mark.type === "entityReference"
-							)
-					).length,
-			},
-		});
-
 		if (session.analyzedContent) {
-			// Log the raw analyzed content structure
-			console.log("📄 Raw analyzed content structure:", {
-				contentType: session.analyzedContent.content.type,
-				paragraphCount: session.analyzedContent.content.content?.length,
-				firstParagraph: session.analyzedContent.content.content?.[0],
-				storedHighlights: session.analyzedContent.highlights,
-				fullText: session.analyzedContent.content.content?.[0]?.content
-					?.map((node) => node.text)
-					.join(""),
-				contentNodes:
-					session.analyzedContent.content.content?.[0]?.content?.length,
-			});
-
 			// Extract highlights from content marks
 			const highlights: HighlightType = [];
 			session.analyzedContent.content.content?.forEach((node) => {
@@ -500,20 +415,12 @@ export class SessionManager {
 				highlights: session.analyzedContent.highlights || [],
 				relationships: session.analyzedContent.relationships,
 			};
-			console.log("📤 Returning analyzed content:", {
-				highlightCount: highlights.length,
-				relationshipCount: result.relationships?.length,
-				firstHighlight: highlights[0],
-				storedHighlights: session.analyzedContent.highlights?.length,
-				extractedHighlights: highlights.length,
-			});
 			return result;
 		}
 
 		const result = {
 			content: session.inputContent.content,
 		};
-		console.log("📤 Returning input content:", result);
 		return result;
 	}
 }

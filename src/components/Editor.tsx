@@ -28,6 +28,60 @@ type EditorProps = {
 	onChangeJSON?: (json: RemirrorJSON) => void;
 };
 
+// Move findBestMatch outside the component
+type MatchType = "exact" | "normalized" | "partial" | "none";
+type Match = {
+	index: number;
+	length: number;
+	matchType: MatchType;
+};
+
+const findBestMatch = (searchText: string, inText: string): Match => {
+	// Try exact match first
+	const exactIndex = inText.indexOf(searchText);
+	if (exactIndex !== -1) {
+		return {
+			index: exactIndex,
+			length: searchText.length,
+			matchType: "exact",
+		};
+	}
+
+	// Try normalized match (case insensitive, trimmed)
+	const normalizedSearch = searchText.toLowerCase().trim();
+	const normalizedText = inText.toLowerCase();
+	const normalizedIndex = normalizedText.indexOf(normalizedSearch);
+	if (normalizedIndex !== -1) {
+		return {
+			index: normalizedIndex,
+			length: searchText.trim().length,
+			matchType: "normalized",
+		};
+	}
+
+	// Try finding the longest common substring
+	const words = searchText.split(" ");
+	let bestMatch: Match = { index: -1, length: 0, matchType: "none" };
+
+	for (let i = 0; i < words.length; i++) {
+		for (let j = words.length; j > i; j--) {
+			const phrase = words.slice(i, j).join(" ");
+			if (phrase.length > bestMatch.length) {
+				const index = inText.toLowerCase().indexOf(phrase.toLowerCase());
+				if (index !== -1) {
+					bestMatch = {
+						index,
+						length: phrase.length,
+						matchType: "partial",
+					};
+				}
+			}
+		}
+	}
+
+	return bestMatch;
+};
+
 const Editor = forwardRef<
 	ReactFrameworkOutput<EntityReferenceExtension>,
 	EditorProps
@@ -80,8 +134,6 @@ const Editor = forwardRef<
 		if (!props.highlights || !props.initialContent || !state || !manager)
 			return;
 
-		console.log("🎯 Initializing highlights:", props.highlights);
-
 		// Get the document content
 		const fullText =
 			props.initialContent.content
@@ -93,11 +145,6 @@ const Editor = forwardRef<
 				)
 				.filter(Boolean)
 				.join("\n") || "";
-
-		console.log("📝 Document content:", {
-			length: fullText.length,
-			content: fullText.slice(0, 50) + "...",
-		});
 
 		// Create a new state with highlights
 		const tr = state.tr;
@@ -139,70 +186,9 @@ const Editor = forwardRef<
 
 		// Apply the transaction if we made any changes
 		if (appliedCount > 0) {
-			console.log("✨ Applied highlights to editor:", {
-				attempted: props.highlights.length,
-				applied: appliedCount,
-				mapSize: highlightMap.size,
-			});
 			setState(state.apply(tr));
-		} else {
-			console.warn("⚠️ No highlights were applied to editor");
 		}
 	}, [props.highlights, props.initialContent, state, setState, manager]);
-
-	// Helper function to find the best match for a text snippet
-	type MatchType = "exact" | "normalized" | "partial" | "none";
-	type Match = {
-		index: number;
-		length: number;
-		matchType: MatchType;
-	};
-
-	const findBestMatch = (searchText: string, inText: string): Match => {
-		// Try exact match first
-		const exactIndex = inText.indexOf(searchText);
-		if (exactIndex !== -1) {
-			return {
-				index: exactIndex,
-				length: searchText.length,
-				matchType: "exact",
-			};
-		}
-
-		// Try normalized match (case insensitive, trimmed)
-		const normalizedSearch = searchText.toLowerCase().trim();
-		const normalizedText = inText.toLowerCase();
-		const normalizedIndex = normalizedText.indexOf(normalizedSearch);
-		if (normalizedIndex !== -1) {
-			return {
-				index: normalizedIndex,
-				length: searchText.trim().length,
-				matchType: "normalized",
-			};
-		}
-
-		// Try finding the longest common substring
-		const words = searchText.split(" ");
-		let bestMatch: Match = { index: -1, length: 0, matchType: "none" };
-
-		for (let i = 0; i < words.length; i++) {
-			for (let j = words.length; j > i; j--) {
-				const phrase = words.slice(i, j).join(" ");
-				if (phrase.length > bestMatch.length) {
-					const index = inText.toLowerCase().indexOf(phrase.toLowerCase());
-					if (index !== -1) {
-						bestMatch = {
-							index,
-							length: phrase.length,
-							matchType: "partial",
-						};
-					}
-				}
-			}
-		}
-
-		return bestMatch;
-	};
 
 	const handleChange: RemirrorEventListener<EntityReferenceExtension> =
 		useCallback(
@@ -210,23 +196,6 @@ const Editor = forwardRef<
 				// Check if this is just a selection change by looking at the transaction metadata
 				const tr = parameter.tr;
 				const isSelectionChangeOnly = tr?.selectionSet && !tr?.docChanged;
-
-				console.log("🔄 Editor Change Event:", {
-					type: tr?.getMeta("origin"),
-					isSelectionChangeOnly,
-					selectionFrom: parameter.state.selection.from,
-					selectionTo: parameter.state.selection.to,
-					hasStoredMarks: tr?.storedMarksSet,
-					docChanged: tr?.docChanged,
-					marks: parameter.state.selection.$from.marks(),
-					storedMarks: parameter.state.storedMarks,
-					transaction: {
-						docChanged: tr?.docChanged,
-						selectionSet: tr?.selectionSet,
-						storedMarksSet: tr?.storedMarksSet,
-						steps: tr?.steps.map((step) => step.toJSON()),
-					},
-				});
 
 				// Always update the editor state
 				setState(parameter.state);
@@ -246,28 +215,9 @@ const Editor = forwardRef<
 				const currentHighlights: Highlight[] = [];
 				const seenIds = new Set<string>();
 
-				// Log the document structure
-				console.log("📄 Document Structure:", {
-					nodeCount: parameter.state.doc.nodeSize,
-					content: parameter.state.doc.content.toJSON(),
-					selection: {
-						from: parameter.state.selection.from,
-						to: parameter.state.selection.to,
-						empty: parameter.state.selection.empty,
-					},
-				});
-
 				// Traverse the document to find all marks
 				parameter.state.doc.descendants((node, pos) => {
 					if (node.marks && node.isText && node.text) {
-						console.log("📍 Node at position", pos, {
-							text: node.text,
-							marks: node.marks.map((m) => ({
-								type: m.type.name,
-								attrs: m.attrs,
-							})),
-						});
-
 						// Find all entity reference marks
 						const entityMarks = node.marks.filter(
 							(mark) =>
@@ -316,19 +266,6 @@ const Editor = forwardRef<
 					}
 				});
 
-				console.log("📊 Current highlights in editor state:", {
-					count: currentHighlights.length,
-					highlights: currentHighlights.map((h) => ({
-						id: h.id,
-						type: h.labelType,
-						text: h.text
-							? h.text.length > 20
-								? h.text.slice(0, 20) + "..."
-								: h.text
-							: "",
-					})),
-				});
-
 				// Save if we have content
 				const json = parameter.state.doc.toJSON();
 				if (json.content?.[0]?.content?.length > 0) {
@@ -336,11 +273,6 @@ const Editor = forwardRef<
 						...json,
 						highlights: currentHighlights,
 					};
-					console.log("💾 Saving editor content:", {
-						highlightCount: currentHighlights.length,
-						isSelectionOnly: isSelectionChangeOnly,
-						content: contentWithHighlights,
-					});
 					onChangeJSON?.(contentWithHighlights);
 				}
 			},
