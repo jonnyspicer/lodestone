@@ -423,4 +423,17 @@ export class SessionManager {
 		};
 		return result;
 	}
+
+	/**
+	 * Update the title of a session
+	 */
+	static async updateSessionTitle(
+		sessionId: number,
+		title: string
+	): Promise<void> {
+		await db.sessions.update(sessionId, {
+			title,
+			lastModified: new Date(),
+		});
+	}
 }
