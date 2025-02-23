@@ -140,7 +140,7 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 						<button
 							onClick={handleAnalyze}
 							disabled={isAnalyzing}
-							className="px-4 py-2 bg-slate-700 text-white rounded hover:bg-slate-800 disabled:opacity-50 flex items-center gap-2"
+							className="px-4 py-2 bg-zinc-700 text-white rounded hover:bg-zinc-800 disabled:opacity-50 flex items-center gap-2"
 						>
 							{isAnalyzing && (
 								<div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -187,7 +187,7 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 					onChangeJSON={handleEditorChange}
 				/>
 				{mode === "analysis" && (
-					<div className="mt-4 p-4 bg-gray-50 rounded">
+					<div className="mt-4 p-4 bg-zinc-50 rounded">
 						<h3 className="font-semibold mb-2">Debug Info:</h3>
 						<pre className="text-xs overflow-auto">
 							{JSON.stringify(

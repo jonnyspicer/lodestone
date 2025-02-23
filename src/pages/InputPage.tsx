@@ -153,7 +153,7 @@ export const InputPage = () => {
 	return (
 		<div className="max-w-2xl mx-auto p-8 space-y-8">
 			<div>
-				<label className="uppercase text-gray-600 text-sm font-medium">
+				<label className="uppercase text-zinc-600 text-sm font-medium mb-2 block tracking-wider">
 					Topic
 				</label>
 				<input
@@ -161,23 +161,25 @@ export const InputPage = () => {
 					value={topic}
 					onChange={(e) => handleTopicChange(e.target.value)}
 					placeholder="What do you want to write about?"
-					className="w-full mt-2 p-3 border rounded-lg"
+					className="w-full px-6 py-5 border rounded-lg remirror-theme"
 				/>
 			</div>
 
 			<div>
-				<label className="uppercase text-gray-600 text-sm font-medium">
+				<label className="uppercase text-zinc-600 text-sm font-medium mb-2 block tracking-wider">
 					Initial Ideas
 				</label>
-				<Editor
-					placeholder={`Write down all your initial ideas and opinions, unorganised and unfiltered. The more the better.
+				<div className="remirror-theme min-h-[400px]">
+					<Editor
+						placeholder={`Write down all your initial ideas and opinions, unorganised and unfiltered. The more the better.
 
 What do you currently believe about this?
 What do you want to say about it?
 Why is this an interesting problem?`}
-					initialContent={content}
-					onChangeJSON={handleContentChange}
-				/>
+						initialContent={content}
+						onChangeJSON={handleContentChange}
+					/>
+				</div>
 			</div>
 
 			{error && (
@@ -191,7 +193,7 @@ Why is this an interesting problem?`}
 				onClick={handleOrganiseIdeas}
 				disabled={!canProceed || isCreating}
 				className={`w-full p-4 rounded-lg text-white transition-colors duration-200
-          ${canProceed ? "bg-primary hover:bg-blue-600" : "bg-gray-200"}`}
+          ${canProceed ? "bg-primary hover:bg-primaryDark" : "bg-zinc-400"}`}
 			>
 				{isCreating ? (
 					<span className="flex items-center justify-center">
@@ -215,10 +217,10 @@ Why is this an interesting problem?`}
 								d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
 							></path>
 						</svg>
-						Creating...
+						Analysing
 					</span>
 				) : (
-					<>Organise ideas →</>
+					<>Analyse ideas →</>
 				)}
 			</button>
 		</div>

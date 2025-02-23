@@ -9,6 +9,8 @@ export default {
 			},
 			colors: {
 				primary: "#4D49F9",
+				primaryDark: "#3834DC",
+				offWhite: "#F5F5F5",
 			},
 		},
 	},

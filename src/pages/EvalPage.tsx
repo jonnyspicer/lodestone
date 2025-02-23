@@ -214,7 +214,7 @@ export const EvalPage = () => {
 						)}
 					/>
 				) : (
-					<pre className="whitespace-pre-wrap bg-gray-100 p-2 rounded text-sm">
+					<pre className="whitespace-pre-wrap bg-zinc-100 p-2 rounded text-sm">
 						{selectedPrompt.template}
 					</pre>
 				)}
@@ -232,7 +232,7 @@ export const EvalPage = () => {
 									loadingStates[modelName]?.status === "sending" ||
 									loadingStates[modelName]?.status === "waiting"
 								}
-								className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+								className="px-4 py-2 bg-primary text-white rounded hover:bg-primaryDark disabled:opacity-50"
 							>
 								Test {modelName}
 							</button>
@@ -240,7 +240,7 @@ export const EvalPage = () => {
 								loadingStates[modelName].status !== "complete" && (
 									<div className="text-sm">
 										{loadingStates[modelName].status === "sending" && (
-											<span className="text-blue-500">
+											<span className="text-primary">
 												⏳ Sending request...
 											</span>
 										)}
@@ -250,7 +250,7 @@ export const EvalPage = () => {
 											</span>
 										)}
 										{loadingStates[modelName].status === "error" && (
-											<span className="text-red-500">
+											<span className="text-rose-500">
 												❌ {loadingStates[modelName].message}
 											</span>
 										)}
@@ -262,20 +262,20 @@ export const EvalPage = () => {
 			</div>
 
 			{/* Model Outputs */}
-			<div className="border p-4 rounded">
+			<div className="border rounded">
 				<h3 className="text-lg font-semibold mb-2">Model Outputs</h3>
 				{results.map((result, index) => (
 					<div key={index} className="mb-4">
 						<h4 className="font-medium">
 							{result.modelName} (Prompt: {result.promptId})
 							{loadingStates[result.modelName]?.status === "complete" && (
-								<span className="text-green-500 ml-2">✓</span>
+								<span className="text-lime-700 ml-2">✓</span>
 							)}
 						</h4>
 						{result.error ? (
-							<div className="text-red-500">{result.error}</div>
+							<div className="text-rose-700">{result.error}</div>
 						) : (
-							<pre className="text-sm whitespace-pre-wrap bg-gray-100 p-2 rounded">
+							<pre className="text-sm whitespace-pre-wrap bg-zinc-100 p-2 rounded">
 								{JSON.stringify(result.output, null, 2)}
 							</pre>
 						)}
