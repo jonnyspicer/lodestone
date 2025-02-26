@@ -39,7 +39,7 @@
 	--rmr-spacing-8: 2rem;
 
 	/* Editor specific styles */
-	max-width: 800px;
+	max-width: 900px;
 	margin: 0 auto;
 	background-color: var(--rmr-color-background);
 	border: 1px solid var(--rmr-color-border);
@@ -47,6 +47,7 @@
 	box-shadow: 0 12px 16px -2px rgba(24, 16, 62, 0.05);
 	font-family: "Lora", serif;
 	font-size: 1.125rem;
+	line-height: 1.6;
 }
 
 .remirror-theme:focus {

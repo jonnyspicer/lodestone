@@ -33,11 +33,11 @@ export const SessionsPage = () => {
 				{sessions?.map((session) => (
 					<div
 						key={session.id}
-						className="border rounded-lg py-5 px-6 bg-offWhite hover:bg-white cursor-pointer transition-all"
+						className="border rounded-lg py-5 px-6 bg-offWhite hover:bg-white cursor-pointer transition-all duration-300 shadow-sm hover:shadow-lg"
 						onClick={() =>
 							navigate(
 								session.status === "input"
-									? `/input/${session.id}`
+									? `/analyze/${session.id}`
 									: `/sessions/${session.id}/analysis`
 							)
 						}
@@ -57,7 +57,7 @@ export const SessionsPage = () => {
 											strokeWidth="2"
 										>
 											<path
-												d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+												d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
 												strokeLinecap="round"
 												strokeLinejoin="round"
 											/>

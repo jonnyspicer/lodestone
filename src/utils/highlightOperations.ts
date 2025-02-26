@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { highlightMap } from "./highlightMap";
+import { deleteHighlight } from "./highlightMap";
 import type { EditorContent } from "../db";
 
 /**
@@ -8,7 +8,7 @@ import type { EditorContent } from "../db";
  * @param currentRecord The current editor content record
  * @returns The updated editor content
  */
-export async function deleteHighlight(
+export async function deleteHighlightFromDB(
 	highlightId: string,
 	currentRecord: EditorContent
 ): Promise<void> {
@@ -16,25 +16,30 @@ export async function deleteHighlight(
 		throw new Error("Cannot delete highlight: No record ID found");
 	}
 
-	// Remove the highlight from highlights array
-	const newHighlights = currentRecord.highlights.filter(
-		(h) => h.id !== highlightId
-	);
+	try {
+		// Remove the highlight from highlights array
+		const newHighlights = currentRecord.highlights.filter(
+			(h) => h.id !== highlightId
+		);
 
-	// Remove any relationships that reference this highlight
-	const newRelationships = currentRecord.relationships.filter(
-		(rel) =>
-			rel.sourceHighlightId !== highlightId &&
-			rel.targetHighlightId !== highlightId
-	);
+		// Remove any relationships that reference this highlight
+		const newRelationships = currentRecord.relationships.filter(
+			(rel) =>
+				rel.sourceHighlightId !== highlightId &&
+				rel.targetHighlightId !== highlightId
+		);
 
-	// Remove from the highlight map
-	highlightMap.delete(highlightId);
+		// Remove from the highlight map
+		deleteHighlight(highlightId);
 
-	// Update the database with both changes
-	await db.editorContent.update(currentRecord.id, {
-		...currentRecord,
-		highlights: newHighlights,
-		relationships: newRelationships,
-	});
+		// Update the database with both changes
+		await db.editorContent.update(currentRecord.id, {
+			...currentRecord,
+			highlights: newHighlights,
+			relationships: newRelationships,
+		});
+	} catch (error) {
+		console.error("Error deleting highlight:", error);
+		throw new Error(`Failed to delete highlight ${highlightId}: ${error}`);
+	}
 }

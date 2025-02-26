@@ -2,6 +2,11 @@ import type { RemirrorJSON } from "remirror";
 import { db, type Session } from "../db";
 import type { ModelName, HighlightWithText } from "../services/models/types";
 import type { Relationship } from "../utils/relationshipTypes";
+import { LABEL_CONFIGS } from "../utils/constants";
+import { annotateText } from "../services/annotation/huggingFaceService";
+import { createDocumentWithMarks } from "../services/annotation/documentUtils";
+import { extractTextFromRemirrorJSON } from "../services/annotation/huggingFaceService";
+import { setHighlight, getHighlight } from "./highlightMap";
 
 type HighlightType = HighlightWithText[];
 
@@ -66,6 +71,66 @@ export class SessionManager {
 			status: "analysis",
 			lastModified: new Date(),
 		});
+	}
+
+	/**
+	 * Analyze text using Hugging Face zero-shot classification
+	 * @param sessionId The session ID
+	 * @param options Configuration options for the analysis
+	 */
+	static async analyzeWithHuggingFace(
+		sessionId: number,
+		options: {
+			modelName?: string;
+			confidenceThreshold?: number;
+			includeOverlapping?: boolean;
+		} = {}
+	): Promise<void> {
+		const session = await this.getSession(sessionId);
+		if (!session) throw new Error("Session not found");
+
+		try {
+			// Extract plain text from Remirror JSON
+			const fullText = extractTextFromRemirrorJSON(
+				session.inputContent.content
+			);
+
+			if (!fullText.trim()) {
+				throw new Error("No text content to analyze");
+			}
+
+			// Annotate the text using Hugging Face
+			const annotations = await annotateText(fullText, LABEL_CONFIGS, {
+				model: options.modelName,
+				confidenceThreshold: options.confidenceThreshold || 0.65,
+				includeOverlapping: options.includeOverlapping || true,
+			});
+
+			if (annotations.length === 0) {
+				console.warn("No annotations found");
+			}
+
+			// Create a new document with the annotations applied as marks
+			const contentWithMarks = createDocumentWithMarks(
+				session.inputContent.content,
+				annotations
+			);
+
+			// Save the analysis results
+			await this.saveAnalysis(
+				sessionId,
+				"huggingface" as ModelName,
+				options.modelName || "zero-shot",
+				contentWithMarks,
+				annotations,
+				[] // No relationships initially
+			);
+
+			console.log(`Analyzed text with ${annotations.length} annotations`);
+		} catch (error) {
+			console.error("Error analyzing with Hugging Face:", error);
+			throw new Error(`Failed to analyze with Hugging Face: ${error}`);
+		}
 	}
 
 	/**
@@ -204,133 +269,93 @@ export class SessionManager {
 		highlights: HighlightType,
 		relationships: Relationship[]
 	): Promise<void> {
-		const session = await this.getSession(sessionId);
-		if (!session?.analyzedContent) {
-			throw new Error("No analyzed content exists to update");
+		const session = await db.sessions.get(sessionId);
+		if (!session || !session.analyzedContent) {
+			throw new Error(
+				`Cannot update analyzed content for session ${sessionId}: Session not found or has no analyzed content`
+			);
 		}
 
-		// Merge existing highlights with new ones, preserving labelTypes
-		const existingHighlights = new Map(
-			session.analyzedContent.highlights.map((h) => [h.id, h])
-		);
+		// Check if this content already has highlights embedded in the marks
+		let hasHighlightsInContent = false;
 
-		// Update or add new highlights
-		const mergedHighlights = highlights.map((highlight) => {
-			const existing = existingHighlights.get(highlight.id);
-			if (existing) {
-				// Preserve the existing labelType if the new one is undefined
-				return {
-					...highlight,
-					labelType: highlight.labelType || existing.labelType,
-					attrs: {
-						labelType: highlight.labelType || existing.labelType,
-						type: highlight.labelType || existing.labelType,
-					},
-				};
-			}
-			return highlight;
-		});
+		if (content.content) {
+			// Check for entity reference marks in the content
+			content.content.forEach((paragraph) => {
+				if (paragraph.content) {
+					paragraph.content.forEach((node) => {
+						if (node.marks) {
+							node.marks.forEach((mark) => {
+								if (
+									typeof mark === "object" &&
+									mark.type === "entity-reference" &&
+									mark.attrs
+								) {
+									hasHighlightsInContent = true;
+								}
+							});
+						}
+					});
+				}
+			});
+		}
+		// Determine which highlights to use for document creation
+		// Priority:
+		// 1. If highlights array is provided and not empty, use that
+		// 2. If content has entity references but highlights array is empty, extract them
+		// 3. Otherwise use existing highlights from session
+		let highlightsToUse = highlights;
 
-		// Get the full text content to help with positioning
+		if (highlights.length === 0 && hasHighlightsInContent) {
+			// Extract highlights from content marks
+			highlightsToUse = await SessionManager.extractHighlightsFromContentMarks(
+				content
+			);
+		}
+
+		if (highlightsToUse.length === 0 && session.analyzedContent.highlights) {
+			highlightsToUse = session.analyzedContent.highlights;
+		}
+
+		// Get full text to help with highlight sorting
 		const fullText =
 			content.content
-				?.map((paragraph) =>
-					paragraph.content?.map((node) => node.text).join("")
-				)
+				?.map((paragraph) => {
+					return paragraph.content
+						?.map((node) => node.text || "")
+						.filter(Boolean)
+						.join("");
+				})
+				.filter(Boolean)
 				.join("\n") || "";
 
-		// Sort highlights by their position in the text
-		const sortedHighlights = [...mergedHighlights].sort((a, b) => {
+		// Sort highlights by position in text
+		const sortedHighlights = [...highlightsToUse].sort((a, b) => {
 			const aIndex = fullText.indexOf(a.text);
 			const bIndex = fullText.indexOf(b.text);
 			return aIndex - bIndex;
 		});
 
-		// Convert highlights into marks within the RemirrorJSON structure
-		const contentWithHighlights: RemirrorJSON = {
-			type: "doc",
-			content:
-				content.content?.map((paragraph) => {
-					if (paragraph.type === "paragraph" && paragraph.content) {
-						let currentPosition = 0;
-						const newContent: Array<{
-							type: "text";
-							text: string;
-							marks?: Array<{
-								type: string;
-								attrs: {
-									id: string;
-									labelType: string;
-									type: string;
-								};
-							}>;
-						}> = [];
-						const paragraphText = paragraph.content
-							.map((node) => node.text)
-							.filter(Boolean)
-							.join("");
+		// Import the createDocumentWithMarks function to apply highlights consistently
+		const { createDocumentWithMarks } = await import(
+			"../services/annotation/documentUtils"
+		);
 
-						// Process text and add highlights for this paragraph
-						for (const highlight of sortedHighlights) {
-							const highlightStart = paragraphText.indexOf(
-								highlight.text,
-								currentPosition
-							);
-							if (highlightStart === -1) continue;
-
-							// Add text before highlight if any
-							if (highlightStart > currentPosition) {
-								newContent.push({
-									type: "text",
-									text: paragraphText.slice(currentPosition, highlightStart),
-								});
-							}
-
-							// Add highlighted text with proper mark type
-							newContent.push({
-								type: "text",
-								text: highlight.text,
-								marks: [
-									{
-										type: "entity-reference",
-										attrs: {
-											id: highlight.id,
-											labelType: highlight.labelType,
-											type: highlight.labelType,
-										},
-									},
-								],
-							});
-
-							currentPosition = highlightStart + highlight.text.length;
-						}
-
-						// Add remaining text if any
-						if (currentPosition < paragraphText.length) {
-							newContent.push({
-								type: "text",
-								text: paragraphText.slice(currentPosition),
-							});
-						}
-
-						return {
-							...paragraph,
-							content: newContent,
-						};
-					}
-					return paragraph;
-				}) || [],
-		};
+		// Always apply highlights to ensure consistency
+		const contentWithHighlights = createDocumentWithMarks(
+			content,
+			sortedHighlights
+		);
 
 		const update = {
 			...session,
-			highlightCount: mergedHighlights.length,
+			highlightCount: sortedHighlights.length,
 			analyzedContent: {
 				...session.analyzedContent,
 				content: contentWithHighlights,
-				highlights: mergedHighlights,
+				highlights: sortedHighlights,
 				relationships,
-				highlightCount: mergedHighlights.length,
+				highlightCount: sortedHighlights.length,
 				updatedAt: new Date(),
 			},
 			lastModified: new Date(),
@@ -379,8 +404,23 @@ export class SessionManager {
 		if (!session) throw new Error("Session not found");
 
 		if (session.analyzedContent) {
-			// Extract highlights from content marks
+			// First use the stored highlights array if it exists and has content
+			if (
+				session.analyzedContent.highlights &&
+				session.analyzedContent.highlights.length > 0
+			) {
+				const result = {
+					content: session.analyzedContent.content,
+					highlights: session.analyzedContent.highlights,
+					relationships: session.analyzedContent.relationships,
+				};
+				return result;
+			}
+
+			// Fallback: Extract highlights from content marks if the array is empty
 			const highlights: HighlightType = [];
+			let markCount = 0;
+
 			session.analyzedContent.content.content?.forEach((node) => {
 				if (node.type === "paragraph" && node.content) {
 					node.content.forEach((textNode) => {
@@ -395,7 +435,9 @@ export class SessionManager {
 								"labelType" in mark.attrs &&
 								"type" in mark.attrs
 						);
+
 						if (highlightMark && textNode.text) {
+							markCount++;
 							highlights.push({
 								id: highlightMark.attrs.id,
 								labelType: highlightMark.attrs.labelType,
@@ -410,9 +452,11 @@ export class SessionManager {
 				}
 			});
 
+			console.log(`Extracted ${markCount} highlight marks from content`);
+
 			const result = {
 				content: session.analyzedContent.content,
-				highlights: session.analyzedContent.highlights || [],
+				highlights: highlights,
 				relationships: session.analyzedContent.relationships,
 			};
 			return result;
@@ -435,5 +479,125 @@ export class SessionManager {
 			title,
 			lastModified: new Date(),
 		});
+	}
+
+	// Helper function to extract highlights from content marks
+	static async extractHighlightsFromContentMarks(
+		content: RemirrorJSON
+	): Promise<HighlightType> {
+		console.log("[DEBUG] Extracting highlights from content marks");
+		const highlights: HighlightType = [];
+		const seenIds = new Set<string>();
+
+		// Process each paragraph and look for entity reference marks
+		content.content?.forEach((paragraph, paragraphIndex) => {
+			if (!paragraph.content) return;
+
+			// Track position within the text
+			let paragraphStart = 0;
+
+			// Find the start position of this paragraph in the full text
+			if (paragraphIndex > 0) {
+				const previousText = content.content
+					?.slice(0, paragraphIndex)
+					.map((p) => {
+						return p.content
+							?.map((n) => n.text || "")
+							.filter(Boolean)
+							.join("");
+					})
+					.filter(Boolean)
+					.join("\n");
+				paragraphStart = (previousText?.length || 0) + paragraphIndex; // +1 for each newline
+			}
+
+			let nodeStart = paragraphStart;
+
+			paragraph.content.forEach((node) => {
+				if (!node.marks || !node.text) {
+					nodeStart += node.text?.length || 0;
+					return;
+				}
+
+				// Find entity reference marks
+				const entityMarks = node.marks.filter(
+					(mark): mark is HighlightMark =>
+						typeof mark === "object" &&
+						mark.type === "entity-reference" &&
+						typeof mark.attrs === "object" &&
+						mark.attrs !== null
+				);
+
+				for (const mark of entityMarks) {
+					// Skip if no ID or already processed
+					if (!mark.attrs.id || seenIds.has(mark.attrs.id)) {
+						continue;
+					}
+
+					const id = String(mark.attrs.id);
+
+					// Get the label type with fallbacks
+					let labelType: string | null = null;
+
+					// First check explicit labelType attribute
+					if (
+						typeof mark.attrs.labelType === "string" &&
+						mark.attrs.labelType
+					) {
+						labelType = mark.attrs.labelType;
+					}
+					// Then fallback to type attribute
+					else if (typeof mark.attrs.type === "string" && mark.attrs.type) {
+						labelType = mark.attrs.type;
+					}
+					// If we still don't have a type, try to get it from the highlight map
+					else {
+						const highlightType = getHighlight(id);
+						if (highlightType) {
+							labelType = highlightType;
+						}
+					}
+
+					if (!labelType) {
+						// Check global highlight map before defaulting to claim
+						const savedType = getHighlight(id);
+						if (savedType) {
+							labelType = savedType;
+						} else {
+							console.warn(
+								`[DEBUG] Mark ${id} has no label type, using "claim" as fallback`
+							);
+							labelType = "claim"; // Default fallback to ensure we don't lose highlights
+						}
+					}
+
+					// Ensure the highlight map is always updated with the correct label
+					if (labelType) {
+						setHighlight(id, labelType);
+					}
+					seenIds.add(id);
+
+					// Add to highlights list with exact text
+					highlights.push({
+						id,
+						labelType, // Ensure both attributes are set consistently
+						text: node.text,
+						startIndex: nodeStart,
+						endIndex: nodeStart + node.text.length,
+						attrs: {
+							labelType,
+							type: labelType,
+						},
+					});
+				}
+
+				nodeStart += node.text.length;
+			});
+		});
+
+		console.log(
+			`[DEBUG] Extracted ${highlights.length} highlight marks from content`
+		);
+		return highlights;
 	}
 }

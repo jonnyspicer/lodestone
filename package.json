@@ -12,6 +12,7 @@
 	"dependencies": {
 		"@emotion/react": "^11.13.5",
 		"@emotion/styled": "^11.13.5",
+		"@huggingface/inference": "^3.3.6",
 		"@remirror/pm": "^3.0.0",
 		"@remirror/react": "^3.0.1",
 		"@remirror/react-editors": "^2.0.1",

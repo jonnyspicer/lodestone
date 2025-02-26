@@ -52,19 +52,61 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 			// Extract highlights from the editor state
 			const highlights = json.highlights || [];
 
+			// Debug log for highlight stability tracking
+			console.log(
+				`handleEditorChange called with ${highlights.length} highlights`
+			);
+
+			// Check if we got an empty update that might just be a cursor movement
+			const isEmpty =
+				!json.content ||
+				json.content.length === 0 ||
+				!json.content[0].content ||
+				json.content[0].content.length === 0;
+
+			if (isEmpty && content?.highlights?.length) {
+				console.log("Received empty update, preserving existing highlights");
+				// Preserve existing highlights if we get an empty update
+				return;
+			}
+
 			if (mode === "input") {
 				await SessionManager.updateInputContent(parseInt(id), json);
 			} else if (mode === "analysis" && session?.analyzedContent) {
-				// Update analyzed content with current highlights and relationships
-				await SessionManager.updateAnalyzedContent(
-					parseInt(id),
-					json,
-					highlights,
-					session.analyzedContent.relationships
-				);
+				// First check if we have highlights explicitly in the json
+				if (highlights.length > 0) {
+					// Update analyzed content with current highlights and relationships
+					await SessionManager.updateAnalyzedContent(
+						parseInt(id),
+						json,
+						highlights,
+						session.analyzedContent.relationships
+					);
+				} else {
+					// Get the previous highlights if available
+					const previousHighlights = session.analyzedContent.highlights || [];
+
+					// Try to extract highlights from the content first
+					const extractedHighlights =
+						await SessionManager.extractHighlightsFromContentMarks(json);
+
+					// Use extracted highlights or fall back to previous highlights
+					const highlightsToUse =
+						extractedHighlights.length > 0
+							? extractedHighlights
+							: previousHighlights;
+
+					// Update analyzed content with the selected highlights
+					await SessionManager.updateAnalyzedContent(
+						parseInt(id),
+						json,
+						highlightsToUse,
+						session.analyzedContent.relationships
+					);
+				}
 			}
 		},
-		[id, mode, session]
+		[id, mode, session, content]
 	);
 
 	const handleAnalyze = async () => {
@@ -135,7 +177,9 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 		<div className="p-4 mx-auto">
 			<div className="flex flex-col gap-4 mb-4">
 				<div className="flex justify-between items-center">
-					<h1 className="text-2xl font-bold">{session.title}</h1>
+					<h1 className="text-2xl font-serif text-center mx-auto">
+						{session.title}
+					</h1>
 					{mode === "input" && (
 						<button
 							onClick={handleAnalyze}
@@ -178,12 +222,11 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 
 			<div className="remirror-theme">
 				<Editor
-					key={content.highlights?.length || 0}
 					ref={editorRef}
 					initialContent={content.content}
 					showHighlightButtons={mode === "analysis"}
-					highlights={content.highlights}
-					relationships={content.relationships}
+					highlights={content.highlights || []}
+					relationships={content.relationships || []}
 					onChangeJSON={handleEditorChange}
 				/>
 				{mode === "analysis" && (
