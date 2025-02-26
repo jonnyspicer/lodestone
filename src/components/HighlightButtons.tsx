@@ -16,6 +16,7 @@ import { LABEL_CONFIGS } from "../utils/constants";
 import { transparentize, mix } from "color2k";
 import { createDocumentWithMarks } from "../services/annotation/documentUtils";
 import { Node, Mark } from "@remirror/pm/model";
+import { createEntityReference } from "../utils/entityUtils";
 
 type HighlightButtonsProps = {
 	onSave: (json: RemirrorJSON) => void;

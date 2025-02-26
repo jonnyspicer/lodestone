@@ -105,7 +105,7 @@ const Editor = forwardRef<
 		if (errorState) {
 			setErrorState(null);
 		}
-	}, [props.initialContent]);
+	}, [errorState, props.initialContent]);
 
 	// Add this debugging function after debugDocumentStructure
 	const countEntityReferences = () => {
@@ -470,7 +470,13 @@ const Editor = forwardRef<
 					setErrorState("Error updating content. Please try again.");
 				}
 			},
-			[onChange, onChangeJSON, props.initialContent]
+			[
+				countEntityReferences,
+				onChange,
+				onChangeJSON,
+				props.initialContent,
+				setState,
+			]
 		);
 
 	return (
@@ -503,43 +509,6 @@ const Editor = forwardRef<
 		</div>
 	);
 });
-
-// Utility function to create properly configured entity references
-export function createEntityReference(
-	id: string,
-	labelType: string,
-	from: number,
-	to: number,
-	commands: {
-		addEntityReference: (options: {
-			id: string;
-			attrs?: Record<string, unknown>;
-		}) => (from: number, to: number) => boolean;
-	}
-) {
-	// Ensure both labelType and type are set to the same value
-	const attrs = {
-		id,
-		labelType,
-		type: labelType,
-	};
-
-	// Add the entity reference with the configured attributes
-	try {
-		const result = commands.addEntityReference({
-			id,
-			attrs,
-		})(from, to);
-
-		// Store in the highlight map for persistence
-		setHighlight(id, labelType);
-
-		return result;
-	} catch (error) {
-		console.error("Error adding entity reference:", error);
-		throw error;
-	}
-}
 
 Editor.displayName = "Editor";
 

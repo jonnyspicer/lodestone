@@ -203,7 +203,7 @@ export const InputPage = () => {
 				<label className="uppercase text-zinc-600 text-sm font-medium mb-2 block tracking-wider">
 					Initial Ideas
 				</label>
-				<div className="remirror-theme min-h-[400px]">
+				<div className="min-h-[400px]">
 					<Editor
 						placeholder={`Write down all your initial ideas and opinions, unorganised and unfiltered. The more the better.
 
