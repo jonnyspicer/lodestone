@@ -4,7 +4,7 @@ import type { PromptTemplate } from "./types";
 export const detailedPrompt: PromptTemplate = {
 	id: "detailed",
 	name: "Detailed Prompt with Examples",
-	template: `You are an expert at analyzing arguments and identifying their components. Your task is to identify key components in the text by selecting EXACT text snippets from the input.
+	template: `You are an expert at analysing arguments and identifying their components. Your task is to identify key components in the text by selecting EXACT text snippets from the input.
 
 Label Types:
 ${LABEL_CONFIGS.map((l) => `- ${l.name}: ${l.description}`).join("\n")}
@@ -55,6 +55,6 @@ Return your analysis in the following JSON format:
     ]
 }
 
-Now analyze this text:
+Now analyse this text:
 {{text}}`,
 };

@@ -84,19 +84,23 @@ export const InputPage = () => {
 		}, [isDirty, id, saveChanges])
 	);
 
-	const handleOrganiseIdeas = async () => {
+	const handleAnalyse = async () => {
 		setIsCreating(true);
 		setError(null);
 		try {
 			let sessionId: number | null = id ? parseInt(id) : null;
 
 			if (!sessionId) {
-				// Only create a new session when organizing ideas
+				// Create a new session if needed
 				const newSession = await SessionManager.createSession(topic, content);
 				if (!newSession.id) {
 					throw new Error("Failed to create session: No session ID returned");
 				}
 				sessionId = newSession.id;
+			} else {
+				// Save any pending changes
+				await SessionManager.updateInputContent(sessionId, content);
+				await SessionManager.updateSessionTitle(sessionId, topic);
 			}
 
 			// Get the GPT-4o-mini service
@@ -126,7 +130,7 @@ export const InputPage = () => {
 			}
 
 			// Send to OpenAI with API key
-			const analysis = await service.analyze(textContent, prompt, { apiKey });
+			const analysis = await service.analyse(textContent, prompt, { apiKey });
 
 			// Save the analysis results
 			await SessionManager.saveAnalysis(
@@ -138,40 +142,11 @@ export const InputPage = () => {
 				analysis.relationships
 			);
 
-			// Navigate to analysis view
+			// Navigate directly to editor page in analysis mode
 			navigate(`/sessions/${sessionId}/analysis`);
 		} catch (error) {
-			console.error("Failed to create and analyze session:", error);
+			console.error("Failed to create and analyse session:", error);
 			setError(error instanceof Error ? error.message : "Unknown error");
-			setIsCreating(false);
-		}
-	};
-
-	// Function to navigate to Hugging Face analysis page
-	const handleHuggingFaceAnalysis = async () => {
-		setIsCreating(true);
-		setError(null);
-		try {
-			let sessionId: number | null = id ? parseInt(id) : null;
-
-			if (!sessionId) {
-				// Create a new session if needed
-				const newSession = await SessionManager.createSession(topic, content);
-				if (!newSession.id) {
-					throw new Error("Failed to create session: No session ID returned");
-				}
-				sessionId = newSession.id;
-			} else {
-				// Save any pending changes
-				await SessionManager.updateInputContent(sessionId, content);
-				await SessionManager.updateSessionTitle(sessionId, topic);
-			}
-
-			// Navigate to the Hugging Face analysis page
-			navigate(`/analyze/${sessionId}`);
-		} catch (error) {
-			console.error("Error preparing for analysis:", error);
-			setError(`Failed to prepare for analysis: ${error}`);
 		} finally {
 			setIsCreating(false);
 		}
@@ -185,7 +160,7 @@ export const InputPage = () => {
 		);
 
 	return (
-		<div className="max-w-3xl mx-auto p-8 space-y-8">
+		<div className="max-w-3xl mx-auto p-8 space-y-8 mb-24">
 			<div>
 				<label className="uppercase text-zinc-600 text-sm font-medium mb-2 block tracking-wider">
 					Topic
@@ -225,7 +200,7 @@ Why is this an interesting problem?`}
 
 			<div className="mt-4">
 				<button
-					onClick={handleHuggingFaceAnalysis}
+					onClick={handleAnalyse}
 					disabled={!canProceed || isCreating}
 					className={`w-full p-4 rounded-lg text-white transition-colors duration-200 ${
 						canProceed ? "bg-primary hover:bg-primaryDark" : "bg-zinc-400"
@@ -253,7 +228,7 @@ Why is this an interesting problem?`}
 									d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
 								></path>
 							</svg>
-							Preparing
+							Analysing
 						</span>
 					) : (
 						<>Analyse →</>

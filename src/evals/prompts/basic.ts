@@ -4,7 +4,7 @@ import type { PromptTemplate } from "./types";
 export const basicPrompt: PromptTemplate = {
 	id: "basic",
 	name: "Basic Prompt",
-	template: `Analyze the following text and identify its key components. For each component, assign one of these label types:
+	template: `Analyse the following text and identify its key components. For each component, assign one of these label types:
 
 ${LABEL_CONFIGS.map((l) => `- ${l.name}: ${l.description}`).join("\n")}
 
@@ -27,6 +27,6 @@ Return your analysis in this JSON format:
     ]
 }
 
-Text to analyze:
+Text to analyse:
 {{text}}`,
 };

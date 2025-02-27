@@ -2,10 +2,30 @@ import { useNavigate } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { SessionManager } from "../utils/sessionManager";
 import { formatDistanceToNowStrict } from "date-fns";
+import { useState } from "react";
 
 export const SessionsPage = () => {
 	const navigate = useNavigate();
 	const sessions = useLiveQuery(() => SessionManager.getSessions(), [], []);
+	const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+
+	const handleDelete = async (sessionId: number) => {
+		try {
+			await SessionManager.deleteSession(sessionId);
+		} catch (error) {
+			console.error("Failed to delete session:", error);
+		} finally {
+			setConfirmDelete(null);
+		}
+	};
+
+	const handleSessionClick = (sessionId: number, status: string) => {
+		navigate(
+			status === "input"
+				? `/analyse/${sessionId}`
+				: `/sessions/${sessionId}/analysis`
+		);
+	};
 
 	return (
 		<div className="p-4 max-w-6xl mx-auto">
@@ -33,16 +53,12 @@ export const SessionsPage = () => {
 				{sessions?.map((session) => (
 					<div
 						key={session.id}
-						className="border rounded-lg py-5 px-6 bg-offWhite hover:bg-white cursor-pointer transition-all duration-300 shadow-sm hover:shadow-lg"
-						onClick={() =>
-							navigate(
-								session.status === "input"
-									? `/analyze/${session.id}`
-									: `/sessions/${session.id}/analysis`
-							)
-						}
+						className="border rounded-lg py-5 px-6 bg-offWhite hover:bg-white transition-all duration-300 shadow-sm hover:shadow-lg relative"
 					>
-						<div className="flex justify-between items-start">
+						<div
+							className="flex justify-between items-start cursor-pointer"
+							onClick={() => handleSessionClick(session.id!, session.status)}
+						>
 							<div>
 								<h2 className="text-xl font-semibold mb-2">{session.title}</h2>
 								<div className="flex flex-row items-center gap-2">
@@ -73,6 +89,60 @@ export const SessionsPage = () => {
 								</div>
 							</div>
 						</div>
+
+						{/* Delete button */}
+						<button
+							onClick={(e) => {
+								e.stopPropagation();
+								setConfirmDelete(session.id!);
+							}}
+							className="absolute top-3 right-3 p-2 text-zinc-400 hover:text-red-500 transition-colors"
+							aria-label="Delete session"
+						>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+							>
+								<path
+									d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+								/>
+							</svg>
+						</button>
+
+						{/* Confirmation dialog */}
+						{confirmDelete === session.id && (
+							<div className="absolute inset-0 bg-white bg-opacity-90 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
+								<div className="p-4 text-center">
+									<p className="mb-4 font-medium">Delete this session?</p>
+									<div className="flex gap-2 justify-center">
+										<button
+											onClick={(e) => {
+												e.stopPropagation();
+												handleDelete(session.id!);
+											}}
+											className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors"
+										>
+											Delete
+										</button>
+										<button
+											onClick={(e) => {
+												e.stopPropagation();
+												setConfirmDelete(null);
+											}}
+											className="px-4 py-2 bg-zinc-200 text-zinc-700 rounded-md hover:bg-zinc-300 transition-colors"
+										>
+											Cancel
+										</button>
+									</div>
+								</div>
+							</div>
+						)}
 					</div>
 				))}
 

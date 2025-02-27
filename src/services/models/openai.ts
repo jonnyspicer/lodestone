@@ -22,7 +22,7 @@ export class OpenAIService implements ModelService {
 			name === "gpt4o-mini" ? "gpt-4-0125-preview" : "gpt-4-turbo-preview";
 	}
 
-	async analyze(
+	async analyse(
 		text: string,
 		prompt: string,
 		config: ModelConfig

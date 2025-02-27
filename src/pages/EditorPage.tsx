@@ -27,10 +27,11 @@ type EditorPageProps = {
 export const EditorPage = ({ mode }: EditorPageProps) => {
 	const { id } = useParams<{ id: string }>();
 	const navigate = useNavigate();
-	const [isAnalyzing, setIsAnalyzing] = useState(false);
+	const [isAnalysing, setIsAnalysing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const editorRef =
 		useRef<ReactFrameworkOutput<EntityReferenceExtension>>(null);
+	const [isDebugVisible, setIsDebugVisible] = useState(false);
 
 	const session = useLiveQuery(async () => {
 		if (!id) return null;
@@ -72,19 +73,19 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 
 			if (mode === "input") {
 				await SessionManager.updateInputContent(parseInt(id), json);
-			} else if (mode === "analysis" && session?.analyzedContent) {
+			} else if (mode === "analysis" && session?.analysedContent) {
 				// First check if we have highlights explicitly in the json
 				if (highlights.length > 0) {
-					// Update analyzed content with current highlights and relationships
-					await SessionManager.updateAnalyzedContent(
+					// Update analysed content with current highlights and relationships
+					await SessionManager.updateAnalysedContent(
 						parseInt(id),
 						json,
 						highlights,
-						session.analyzedContent.relationships
+						session.analysedContent.relationships
 					);
 				} else {
 					// Get the previous highlights if available
-					const previousHighlights = session.analyzedContent.highlights || [];
+					const previousHighlights = session.analysedContent.highlights || [];
 
 					// Try to extract highlights from the content first
 					const extractedHighlights =
@@ -96,12 +97,12 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 							? extractedHighlights
 							: previousHighlights;
 
-					// Update analyzed content with the selected highlights
-					await SessionManager.updateAnalyzedContent(
+					// Update analysed content with the selected highlights
+					await SessionManager.updateAnalysedContent(
 						parseInt(id),
 						json,
 						highlightsToUse,
-						session.analyzedContent.relationships
+						session.analysedContent.relationships
 					);
 				}
 			}
@@ -109,9 +110,9 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 		[id, mode, session, content]
 	);
 
-	const handleAnalyze = async () => {
+	const handleAnalyse = async () => {
 		if (!id || !session || !content) return;
-		setIsAnalyzing(true);
+		setIsAnalysing(true);
 		setError(null);
 
 		try {
@@ -142,7 +143,7 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 			}
 
 			// Send to OpenAI with API key
-			const analysis = await service.analyze(textContent, prompt, { apiKey });
+			const analysis = await service.analyse(textContent, prompt, { apiKey });
 
 			// Save the analysis results
 			await SessionManager.saveAnalysis(
@@ -160,7 +161,7 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 			console.error("Analysis failed:", error);
 			setError(error instanceof Error ? error.message : "Unknown error");
 		} finally {
-			setIsAnalyzing(false);
+			setIsAnalysing(false);
 		}
 	};
 
@@ -174,7 +175,7 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 	}
 
 	return (
-		<div className="p-4 mx-auto">
+		<div className="p-4 mx-auto mb-32">
 			<div className="flex flex-col gap-4 mb-4">
 				<div className="flex justify-between items-center">
 					<h1 className="text-2xl font-serif text-center mx-auto">
@@ -182,14 +183,14 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 					</h1>
 					{mode === "input" && (
 						<button
-							onClick={handleAnalyze}
-							disabled={isAnalyzing}
+							onClick={handleAnalyse}
+							disabled={isAnalysing}
 							className="px-4 py-2 bg-zinc-700 text-white rounded hover:bg-zinc-800 disabled:opacity-50 flex items-center gap-2"
 						>
-							{isAnalyzing && (
+							{isAnalysing && (
 								<div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
 							)}
-							{isAnalyzing ? "Analyzing..." : "Analyze Text"}
+							{isAnalysing ? "Analysing..." : "Analyse Text"}
 						</button>
 					)}
 				</div>
@@ -221,27 +222,53 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 			</div>
 
 			<div className="remirror-theme">
-				<Editor
-					ref={editorRef}
-					initialContent={content.content}
-					showHighlightButtons={mode === "analysis"}
-					highlights={content.highlights || []}
-					relationships={content.relationships || []}
-					onChangeJSON={handleEditorChange}
-				/>
+				<div className="max-w-4xl mx-auto">
+					<Editor
+						ref={editorRef}
+						initialContent={content.content}
+						showHighlightButtons={mode === "analysis"}
+						renderSidebar={mode === "analysis"}
+						highlights={content.highlights || []}
+						relationships={content.relationships || []}
+						onChangeJSON={handleEditorChange}
+					/>
+				</div>
+
 				{mode === "analysis" && (
-					<div className="mt-4 p-4 bg-zinc-50 rounded">
-						<h3 className="font-semibold mb-2">Debug Info:</h3>
-						<pre className="text-xs overflow-auto">
-							{JSON.stringify(
-								{
-									highlights: content.highlights,
-									relationships: content.relationships,
-								},
-								null,
-								2
-							)}
-						</pre>
+					<div className="mt-4 p-4  rounded max-w-4xl mx-auto">
+						<button
+							className="flex items-center justify-between w-full"
+							onClick={() => setIsDebugVisible(!isDebugVisible)}
+						>
+							<h3 className="font-semibold">Debug Info</h3>
+							<svg
+								className={`w-5 h-5 transition-transform ${
+									isDebugVisible ? "rotate-180" : ""
+								}`}
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path
+									strokeLinecap="round"
+									strokeLinejoin="round"
+									strokeWidth={2}
+									d="M19 9l-7 7-7-7"
+								/>
+							</svg>
+						</button>
+						{isDebugVisible && (
+							<pre className="mt-2 text-xs overflow-auto">
+								{JSON.stringify(
+									{
+										highlights: content.highlights,
+										relationships: content.relationships,
+									},
+									null,
+									2
+								)}
+							</pre>
+						)}
 					</div>
 				)}
 			</div>

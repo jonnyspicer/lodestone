@@ -13,7 +13,7 @@ export type Highlight = {
 	};
 };
 
-export type AnalyzedContent = {
+export type AnalysedContent = {
 	content: RemirrorJSON;
 	highlights: Highlight[];
 	relationships: Relationship[];

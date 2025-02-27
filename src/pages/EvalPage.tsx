@@ -82,7 +82,7 @@ export const EvalPage = () => {
 				},
 			}));
 
-			const output = await service.analyze(selectedTest.text, promptToUse, {
+			const output = await service.analyse(selectedTest.text, promptToUse, {
 				apiKey,
 			});
 
@@ -167,7 +167,7 @@ export const EvalPage = () => {
 
 				{/* Test Case Preview */}
 				<div className="border rounded p-4 bg-white">
-					<h4 className="font-medium mb-2">Text to Analyze:</h4>
+					<h4 className="font-medium mb-2">Text to Analyse:</h4>
 					<div className="whitespace-pre-wrap bg-gray-50 p-4 rounded">
 						{selectedTest.text}
 					</div>

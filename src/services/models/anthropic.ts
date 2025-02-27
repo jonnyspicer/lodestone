@@ -14,7 +14,7 @@ export class AnthropicService implements ModelService {
 		this.defaultModel = "claude-3-sonnet-20240229";
 	}
 
-	async analyze(
+	async analyse(
 		text: string,
 		prompt: string,
 		config: ModelConfig

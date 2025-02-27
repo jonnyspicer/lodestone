@@ -13,10 +13,8 @@ import {
 	deleteHighlight,
 } from "../utils/highlightMap";
 import { LABEL_CONFIGS } from "../utils/constants";
-import { transparentize, mix } from "color2k";
 import { createDocumentWithMarks } from "../services/annotation/documentUtils";
 import { Node, Mark } from "@remirror/pm/model";
-import { createEntityReference } from "../utils/entityUtils";
 
 type HighlightButtonsProps = {
 	onSave: (json: RemirrorJSON) => void;
@@ -305,7 +303,7 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 	};
 
 	return (
-		<div>
+		<div className="flex flex-col gap-3 highlight-buttons-sidebar">
 			{error && <div className="text-red-500 mb-2 text-sm">{error}</div>}
 			{LABEL_CONFIGS.map((label) => {
 				const active = highlightsAt.some(
@@ -316,18 +314,20 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 					<button
 						key={label.id}
 						onClick={() => handleHighlight(label.id)}
-						className={`
-							mr-2 px-2 py-1 rounded
-							border transition-opacity duration-200
-							${active ? "opacity-100" : "opacity-70"}
-						`}
-						style={{
-							backgroundColor: transparentize(label.color, 0.4),
-							borderColor: transparentize(label.color, 0.2),
-							color: mix(label.color, "#000000", 0.7),
-						}}
+						className="flex items-center gap-2 text-left transition-all group"
 					>
-						{label.name}
+						<div
+							className="w-3 h-3 rounded-full transition-all group-hover:scale-110"
+							style={{ backgroundColor: label.color }}
+						/>
+						<span
+							className={`
+								${active ? "text-black" : "text-gray-700"} 
+								group-hover:text-black transition-colors
+							`}
+						>
+							{label.name}
+						</span>
 					</button>
 				);
 			})}

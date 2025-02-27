@@ -27,12 +27,12 @@ export interface Session {
 	};
 
 	// Analysis content (optional until analysis is performed)
-	analyzedContent?: AnalyzedContent;
+	analysedContent?: AnalysedContent;
 
 	lastModified: Date;
 }
 
-export interface AnalyzedContent {
+export interface AnalysedContent {
 	modelName: ModelName;
 	promptId: string;
 	content: RemirrorJSON;
@@ -58,10 +58,10 @@ export class EditorDatabase extends Dexie {
 
 		// Add hooks to ensure content is properly handled
 		this.sessions.hook("reading", (obj) => {
-			if (obj.analyzedContent?.content) {
+			if (obj.analysedContent?.content) {
 				// Ensure the content is properly structured
-				if (!obj.analyzedContent.content.type) {
-					obj.analyzedContent.content = {
+				if (!obj.analysedContent.content.type) {
+					obj.analysedContent.content = {
 						type: "doc",
 						content: [],
 					};

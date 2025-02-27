@@ -27,7 +27,7 @@ export interface ModelConfig {
 
 export interface ModelService {
 	name: ModelName;
-	analyze: (
+	analyse: (
 		text: string,
 		prompt: string,
 		config: ModelConfig

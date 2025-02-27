@@ -74,11 +74,11 @@ export class SessionManager {
 	}
 
 	/**
-	 * Analyze text using Hugging Face zero-shot classification
+	 * Analyse text using Hugging Face zero-shot classification
 	 * @param sessionId The session ID
 	 * @param options Configuration options for the analysis
 	 */
-	static async analyzeWithHuggingFace(
+	static async analyseWithHuggingFace(
 		sessionId: number,
 		options: {
 			modelName?: string;
@@ -96,7 +96,7 @@ export class SessionManager {
 			);
 
 			if (!fullText.trim()) {
-				throw new Error("No text content to analyze");
+				throw new Error("No text content to analyse");
 			}
 
 			// Annotate the text using Hugging Face
@@ -126,10 +126,10 @@ export class SessionManager {
 				[] // No relationships initially
 			);
 
-			console.log(`Analyzed text with ${annotations.length} annotations`);
+			console.log(`Analysed text with ${annotations.length} annotations`);
 		} catch (error) {
-			console.error("Error analyzing with Hugging Face:", error);
-			throw new Error(`Failed to analyze with Hugging Face: ${error}`);
+			console.error("Error analysing with Hugging Face:", error);
+			throw new Error(`Failed to analyse with Hugging Face: ${error}`);
 		}
 	}
 
@@ -245,7 +245,7 @@ export class SessionManager {
 			...session,
 			status: "analysis" as const,
 			highlightCount,
-			analyzedContent: {
+			analysedContent: {
 				modelName,
 				promptId,
 				content: contentWithHighlights,
@@ -261,18 +261,18 @@ export class SessionManager {
 	}
 
 	/**
-	 * Update analyzed content for a session
+	 * Update analysed content for a session
 	 */
-	static async updateAnalyzedContent(
+	static async updateAnalysedContent(
 		sessionId: number,
 		content: RemirrorJSON,
 		highlights: HighlightType,
 		relationships: Relationship[]
 	): Promise<void> {
 		const session = await db.sessions.get(sessionId);
-		if (!session || !session.analyzedContent) {
+		if (!session || !session.analysedContent) {
 			throw new Error(
-				`Cannot update analyzed content for session ${sessionId}: Session not found or has no analyzed content`
+				`Cannot update analysed content for session ${sessionId}: Session not found or has no analysed content`
 			);
 		}
 
@@ -313,8 +313,8 @@ export class SessionManager {
 			);
 		}
 
-		if (highlightsToUse.length === 0 && session.analyzedContent.highlights) {
-			highlightsToUse = session.analyzedContent.highlights;
+		if (highlightsToUse.length === 0 && session.analysedContent.highlights) {
+			highlightsToUse = session.analysedContent.highlights;
 		}
 
 		// Get full text to help with highlight sorting
@@ -350,8 +350,8 @@ export class SessionManager {
 		const update = {
 			...session,
 			highlightCount: sortedHighlights.length,
-			analyzedContent: {
-				...session.analyzedContent,
+			analysedContent: {
+				...session.analysedContent,
 				content: contentWithHighlights,
 				highlights: sortedHighlights,
 				relationships,
@@ -393,7 +393,7 @@ export class SessionManager {
 
 	/**
 	 * Get the effective content for a session
-	 * Returns analyzed content if it exists, otherwise returns input content
+	 * Returns analysed content if it exists, otherwise returns input content
 	 */
 	static async getEffectiveContent(sessionId: number): Promise<{
 		content: RemirrorJSON;
@@ -403,16 +403,16 @@ export class SessionManager {
 		const session = await this.getSession(sessionId);
 		if (!session) throw new Error("Session not found");
 
-		if (session.analyzedContent) {
+		if (session.analysedContent) {
 			// First use the stored highlights array if it exists and has content
 			if (
-				session.analyzedContent.highlights &&
-				session.analyzedContent.highlights.length > 0
+				session.analysedContent.highlights &&
+				session.analysedContent.highlights.length > 0
 			) {
 				const result = {
-					content: session.analyzedContent.content,
-					highlights: session.analyzedContent.highlights,
-					relationships: session.analyzedContent.relationships,
+					content: session.analysedContent.content,
+					highlights: session.analysedContent.highlights,
+					relationships: session.analysedContent.relationships,
 				};
 				return result;
 			}
@@ -421,7 +421,7 @@ export class SessionManager {
 			const highlights: HighlightType = [];
 			let markCount = 0;
 
-			session.analyzedContent.content.content?.forEach((node) => {
+			session.analysedContent.content.content?.forEach((node) => {
 				if (node.type === "paragraph" && node.content) {
 					node.content.forEach((textNode) => {
 						const highlightMark = textNode.marks?.find(
@@ -455,9 +455,9 @@ export class SessionManager {
 			console.log(`Extracted ${markCount} highlight marks from content`);
 
 			const result = {
-				content: session.analyzedContent.content,
+				content: session.analysedContent.content,
 				highlights: highlights,
-				relationships: session.analyzedContent.relationships,
+				relationships: session.analysedContent.relationships,
 			};
 			return result;
 		}

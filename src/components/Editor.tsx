@@ -22,11 +22,11 @@ import {
 	setHighlight,
 	getHighlightCount,
 } from "../utils/highlightMap";
-import { HighlightButtons } from "./HighlightButtons";
 import { decorateHighlights } from "../utils/decorateHighlights";
 import type { Relationship } from "../utils/relationshipTypes";
 import type { Highlight } from "../utils/types";
 import type { HighlightWithText } from "../services/models/types";
+import { HighlightButtons } from "./HighlightButtons";
 
 // Extended RemirrorJSON interface to include highlights
 interface RemirrorJSONWithHighlights extends RemirrorJSON {
@@ -41,6 +41,7 @@ type EditorProps = {
 	relationships?: Relationship[];
 	onChange?: RemirrorEventListener<EntityReferenceExtension>;
 	onChangeJSON?: (json: RemirrorJSONWithHighlights) => void;
+	renderSidebar?: boolean;
 };
 
 const Editor = forwardRef<
@@ -106,31 +107,6 @@ const Editor = forwardRef<
 			setErrorState(null);
 		}
 	}, [errorState, props.initialContent]);
-
-	// Add this debugging function after debugDocumentStructure
-	const countEntityReferences = () => {
-		if (!state) return 0;
-
-		let count = 0;
-		const refs = new Set();
-
-		state.doc.descendants((node) => {
-			if (node.marks) {
-				const entityMarks = node.marks.filter(
-					(mark) => mark.type.name === "entity-reference"
-				);
-
-				entityMarks.forEach((mark) => {
-					if (mark.attrs.id) {
-						count++;
-						refs.add(mark.attrs.id);
-					}
-				});
-			}
-			return true;
-		});
-		return count;
-	};
 
 	// Sync highlight map with document marks when component mounts or highlights change
 	useEffect(() => {
@@ -323,6 +299,31 @@ const Editor = forwardRef<
 	const handleChange: RemirrorEventListener<EntityReferenceExtension> =
 		useCallback(
 			(parameter: RemirrorEventListenerProps<EntityReferenceExtension>) => {
+				// Define countEntityReferences inside the callback
+				const countEntityReferences = () => {
+					if (!parameter.state) return 0;
+
+					let count = 0;
+					const refs = new Set();
+
+					parameter.state.doc.descendants((node) => {
+						if (node.marks) {
+							const entityMarks = node.marks.filter(
+								(mark) => mark.type.name === "entity-reference"
+							);
+
+							entityMarks.forEach((mark) => {
+								if (mark.attrs.id) {
+									count++;
+									refs.add(mark.attrs.id);
+								}
+							});
+						}
+						return true;
+					});
+					return count;
+				};
+
 				// Add debug to track entity references after any change
 				countEntityReferences();
 
@@ -470,17 +471,11 @@ const Editor = forwardRef<
 					setErrorState("Error updating content. Please try again.");
 				}
 			},
-			[
-				countEntityReferences,
-				onChange,
-				onChangeJSON,
-				props.initialContent,
-				setState,
-			]
+			[onChange, onChangeJSON, props.initialContent, setState]
 		);
 
 	return (
-		<div className="remirror-theme h-full flex flex-col">
+		<div className="remirror-theme h-full flex flex-col relative">
 			{errorState && (
 				<div className="bg-red-100 text-red-700 p-2 mb-2 rounded">
 					{errorState}
@@ -493,14 +488,16 @@ const Editor = forwardRef<
 				autoFocus
 				onChange={handleChange}
 			>
-				<div className="flex flex-col h-full">
-					<EditorComponent
-						// @ts-expect-error - placeholder prop is supported but has typing issues
-						placeholder={props.placeholder || "Start typing..."}
-					/>
+				<div className="h-full">
+					<div className="w-full">
+						<EditorComponent
+							// @ts-expect-error - placeholder prop is supported but has typing issues
+							placeholder={props.placeholder || "Start typing..."}
+						/>
+					</div>
 
-					{props.showHighlightButtons && (
-						<div className="mt-4">
+					{props.renderSidebar && props.showHighlightButtons && (
+						<div className="absolute left-full top-0 ml-8 pt-4 min-w-[150px] highlight-buttons-sidebar">
 							<HighlightButtons onSave={(json) => onChangeJSON?.(json)} />
 						</div>
 					)}
