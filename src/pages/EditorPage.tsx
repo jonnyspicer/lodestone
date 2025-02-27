@@ -20,7 +20,10 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 	const [error, setError] = useState<string | null>(null);
 	const editorRef =
 		useRef<ReactFrameworkOutput<EntityReferenceExtension>>(null);
-	const [isDebugVisible, setIsDebugVisible] = useState(false);
+	// Track highlight removal operations
+	const [pendingHighlightRemoval, setPendingHighlightRemoval] = useState(false);
+	// Track multiple document change events with the same ID to detect race conditions
+	const currentChangeIds = useRef(new Set<string>());
 
 	const session = useLiveQuery(async () => {
 		if (!id) return null;
@@ -36,10 +39,35 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 	}, [id]);
 
 	const handleEditorChange = useCallback(
-		async (json: RemirrorJSON) => {
+		async (json: RemirrorJSON, options?: { skipExtraction?: boolean }) => {
 			if (!id) return;
 
-			console.log(`[Debug] Editor content changed`);
+			// Create a unique ID for this change event to track it
+			const changeId = Math.random().toString(36).substring(2, 8);
+
+			// Check if we're already processing a change with this ID (prevent duplicates)
+			if (currentChangeIds.current.has(changeId)) {
+				return;
+			}
+
+			// Mark this change as being processed
+			currentChangeIds.current.add(changeId);
+
+			// Clear the change ID after processing (or after timeout)
+			const clearChangeId = () => {
+				currentChangeIds.current.delete(changeId);
+			};
+			setTimeout(clearChangeId, 500); // Safety cleanup after 500ms
+
+			// Set pending highlight removal based on options
+			if (options?.skipExtraction) {
+				setPendingHighlightRemoval(true);
+
+				// Auto-reset after a short timeout
+				setTimeout(() => {
+					setPendingHighlightRemoval(false);
+				}, 500);
+			}
 
 			// Check if we got an empty update that might just be a cursor movement
 			const isEmpty =
@@ -49,30 +77,66 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 				json.content[0].content.length === 0;
 
 			if (isEmpty) {
-				console.log("[Debug] Received empty update, ignoring");
+				clearChangeId();
 				return;
 			}
 
-			if (mode === "input") {
-				await SessionManager.updateInputContent(parseInt(id), json);
-			} else if (mode === "analysis" && session?.analysedContent) {
-				// Extract highlights directly from the document
-				const extractedHighlights =
-					await SessionManager.extractHighlightsFromContentMarks(json);
-				console.log(
-					`[Debug] Extracted ${extractedHighlights.length} highlights from document`
-				);
+			try {
+				if (mode === "input") {
+					await SessionManager.updateInputContent(parseInt(id), json);
+				} else if (mode === "analysis" && session?.analysedContent) {
+					// Check if this is a highlight removal operation, which can be detected by:
+					// 1. Explicit skipExtraction flag
+					// 2. Missing entity reference marks that were present in previous state
+					// 3. We're in a pending highlight removal state
 
-				// Use the document as the source of truth for highlights
-				await SessionManager.updateAnalysedContent(
-					parseInt(id),
-					json,
-					extractedHighlights,
-					session.analysedContent.relationships
-				);
+					// Get current highlight count from session
+					const currentHighlightCount =
+						session.analysedContent.highlights.length;
+
+					// Skip extraction if explicitly requested or we're in pending removal state
+					if (options?.skipExtraction || pendingHighlightRemoval) {
+						// Empty array signals to preserve the content as-is
+						await SessionManager.updateAnalysedContent(
+							parseInt(id),
+							json,
+							[], // Empty highlight array
+							session.analysedContent.relationships
+						);
+					} else {
+						// Normal path: Extract highlights directly from the document
+						const extractedHighlights =
+							await SessionManager.extractHighlightsFromContentMarks(json);
+
+						// If we found fewer highlights than expected, this might be a removal operation
+						// triggered by automatic onChange rather than our explicit skipExtraction call
+						if (extractedHighlights.length < currentHighlightCount) {
+							// Preserve the new content with the extracted highlights
+							await SessionManager.updateAnalysedContent(
+								parseInt(id),
+								json,
+								extractedHighlights, // Use the extracted highlights directly
+								session.analysedContent.relationships
+							);
+						} else {
+							// Regular update with the extracted highlights
+							await SessionManager.updateAnalysedContent(
+								parseInt(id),
+								json,
+								extractedHighlights,
+								session.analysedContent.relationships
+							);
+						}
+					}
+				}
+			} catch (error) {
+				console.error(`Error in handleEditorChange: ${error}`);
+			} finally {
+				// Ensure we clear the change ID even if there was an error
+				clearChangeId();
 			}
 		},
-		[id, mode, session]
+		[id, mode, session, pendingHighlightRemoval]
 	);
 
 	const handleAnalyse = async () => {
@@ -198,44 +262,6 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 						onChangeJSON={handleEditorChange}
 					/>
 				</div>
-
-				{mode === "analysis" && (
-					<div className="mt-4 p-4  rounded max-w-4xl mx-auto">
-						<button
-							className="flex items-center justify-between w-full"
-							onClick={() => setIsDebugVisible(!isDebugVisible)}
-						>
-							<h3 className="font-semibold">Debug Info</h3>
-							<svg
-								className={`w-5 h-5 transition-transform ${
-									isDebugVisible ? "rotate-180" : ""
-								}`}
-								fill="none"
-								stroke="currentColor"
-								viewBox="0 0 24 24"
-							>
-								<path
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									strokeWidth={2}
-									d="M19 9l-7 7-7-7"
-								/>
-							</svg>
-						</button>
-						{isDebugVisible && (
-							<pre className="mt-2 text-xs overflow-auto">
-								{JSON.stringify(
-									{
-										highlights: content.highlights,
-										relationships: content.relationships,
-									},
-									null,
-									2
-								)}
-							</pre>
-						)}
-					</div>
-				)}
 			</div>
 		</div>
 	);

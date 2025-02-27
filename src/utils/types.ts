@@ -7,10 +7,6 @@ export type Highlight = {
 	text: string;
 	startIndex?: number;
 	endIndex?: number;
-	attrs?: {
-		labelType: string;
-		type: string;
-	};
 };
 
 export type AnalysedContent = {

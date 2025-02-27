@@ -13,21 +13,23 @@ export function createEntityReference(
 		}) => (from: number, to: number) => boolean;
 	}
 ) {
-	// Ensure both labelType and type are set to the same value
-	const attrs = {
-		id,
-		labelType,
-		type: labelType,
-	};
+	// Simplified: no need for redundant attributes in the mark
+	// Following Remirror's documentation pattern - only ID is needed in the mark
+	// However, we need to include labelType and type for compatibility with existing code
 
-	// Add the entity reference with the configured attributes
+	// Add the entity reference with minimal configuration
 	try {
 		const result = commands.addEntityReference({
 			id,
-			attrs,
+			// Include required attributes for compatibility
+			attrs: {
+				labelType,
+				type: labelType,
+			},
 		})(from, to);
 
-		// Store in the highlight map for persistence
+		// Store the label type in the highlight map for persistence
+		// This follows Remirror's recommended pattern
 		setHighlight(id, labelType);
 
 		return result;

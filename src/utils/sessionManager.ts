@@ -10,7 +10,42 @@ import { setHighlight, getHighlight } from "./highlightMap";
 
 type HighlightType = HighlightWithText[];
 
+// Define the Node type used in the code
+interface NodeMark {
+	type: string;
+	attrs?: {
+		id?: string;
+		labelType?: string;
+		type?: string;
+		[key: string]: unknown;
+	};
+}
+
+interface DocNode {
+	type?: string;
+	text?: string;
+	marks?: NodeMark[];
+	content?: DocNode[];
+	[key: string]: unknown;
+}
+
 export class SessionManager {
+	// Track recently removed highlights to prevent re-extraction
+	static recentlyRemovedHighlights = new Set<string>();
+
+	/**
+	 * Mark a highlight as recently removed
+	 * This helps prevent race conditions during highlight removal
+	 */
+	static markHighlightAsRemoved(id: string): void {
+		this.recentlyRemovedHighlights.add(id);
+
+		// Clear after a short delay to prevent memory leaks
+		setTimeout(() => {
+			this.recentlyRemovedHighlights.delete(id);
+		}, 500); // 500ms should be enough time for any pending updates to complete
+	}
+
 	/**
 	 * Create a new session with initial text content
 	 */
@@ -267,29 +302,50 @@ export class SessionManager {
 			);
 		}
 
+		// Special case: Empty highlights array with content changes means we deliberately removed highlights
+		// and we should keep the content as-is without trying to re-extract or re-apply highlights
+		const isDeliberateHighlightRemoval =
+			highlights.length === 0 && session.analysedContent.highlights.length > 0;
+
 		// Determine which highlights to use
 		let highlightsToUse = highlights;
+		let contentWithHighlights = content;
 
-		// If no highlights provided, try to extract them from content marks
-		if (highlightsToUse.length === 0) {
+		if (isDeliberateHighlightRemoval) {
+			// Keep the content as-is, don't extract or reapply highlights
+			highlightsToUse = [];
+		} else if (highlightsToUse.length === 0) {
+			// If no highlights provided and not explicitly removing, try to extract them
 			highlightsToUse = await SessionManager.extractHighlightsFromContentMarks(
 				content
 			);
-			console.log(
-				`[Debug] Extracted ${highlightsToUse.length} highlights from content`
+
+			// Apply highlights to ensure consistency
+			const { createDocumentWithMarks } = await import(
+				"../services/annotation/documentUtils"
 			);
+			contentWithHighlights = createDocumentWithMarks(content, highlightsToUse);
+		} else {
+			// Normal case - we have highlights provided
+
+			// Don't re-apply highlights when explicitly updating with fewer highlights
+			// (indicates intentional highlight removal)
+			const highlightsWereRemoved =
+				session.analysedContent.highlights.length > highlights.length;
+
+			if (highlightsWereRemoved) {
+				// Keep content as-is
+			} else {
+				// Apply highlights to ensure consistency
+				const { createDocumentWithMarks } = await import(
+					"../services/annotation/documentUtils"
+				);
+				contentWithHighlights = createDocumentWithMarks(
+					content,
+					highlightsToUse
+				);
+			}
 		}
-
-		// Import the createDocumentWithMarks function to apply highlights consistently
-		const { createDocumentWithMarks } = await import(
-			"../services/annotation/documentUtils"
-		);
-
-		// Apply highlights to ensure consistency
-		const contentWithHighlights = createDocumentWithMarks(
-			content,
-			highlightsToUse
-		);
 
 		const update = {
 			...session,
@@ -395,28 +451,8 @@ export class SessionManager {
 	static async extractHighlightsFromContentMarks(
 		content: RemirrorJSON
 	): Promise<HighlightType> {
-		console.log("[DEBUG] Extracting highlights from content marks");
 		const highlights: HighlightType = [];
 		const seenIds = new Set<string>();
-
-		// Define types for document nodes
-		interface NodeMark {
-			type: string;
-			attrs?: {
-				id?: string;
-				labelType?: string;
-				type?: string;
-				[key: string]: unknown;
-			};
-		}
-
-		interface DocNode {
-			type?: string;
-			text?: string;
-			marks?: NodeMark[];
-			content?: DocNode[];
-			[key: string]: unknown;
-		}
 
 		// Recursive function to traverse the document and find entity reference marks
 		const processNode = (node: DocNode, textPosition = 0): number => {
@@ -428,8 +464,12 @@ export class SessionManager {
 				);
 
 				for (const mark of entityMarks) {
-					// Skip if no ID or already processed
-					if (!mark.attrs?.id || seenIds.has(mark.attrs.id)) {
+					// Skip if no ID, already processed, or explicitly marked as removed
+					if (
+						!mark.attrs?.id ||
+						seenIds.has(mark.attrs.id) ||
+						SessionManager.recentlyRemovedHighlights.has(String(mark.attrs.id))
+					) {
 						continue;
 					}
 
@@ -461,10 +501,6 @@ export class SessionManager {
 						text: node.text,
 						startIndex: textPosition,
 						endIndex: textPosition + node.text.length,
-						attrs: {
-							labelType,
-							type: labelType,
-						},
 					});
 				}
 
@@ -497,10 +533,29 @@ export class SessionManager {
 			content.content.forEach((node) => processNode(node as DocNode));
 		}
 
-		console.log(
-			`[DEBUG] Extracted ${highlights.length} highlight marks from content`
-		);
-
 		return highlights;
 	}
+
+	// Register API for exposing functionality to window
+	static registerWindowAPI() {
+		// Make SessionManager methods available to the window object for cross-component communication
+		try {
+			// Define the window object with the sessionManagerApi property
+			(
+				window as Window & {
+					sessionManagerApi: {
+						markHighlightAsRemoved: (id: string) => void;
+					};
+				}
+			).sessionManagerApi = {
+				markHighlightAsRemoved: this.markHighlightAsRemoved.bind(this),
+			};
+			console.log("SessionManager window API registered");
+		} catch (e) {
+			console.error("Failed to register SessionManager window API:", e);
+		}
+	}
 }
+
+// Register the window API when this module loads
+SessionManager.registerWindowAPI();

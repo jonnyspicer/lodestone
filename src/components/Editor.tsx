@@ -17,11 +17,7 @@ import type {
 	RemirrorEventListener,
 	RemirrorEventListenerProps,
 } from "@remirror/core";
-import {
-	clearHighlights,
-	setHighlight,
-	getHighlightCount,
-} from "../utils/highlightMap";
+import { clearHighlights, setHighlight } from "../utils/highlightMap";
 import { decorateHighlights } from "../utils/decorateHighlights";
 import type { Relationship } from "../utils/relationshipTypes";
 import type { HighlightWithText } from "../services/models/types";
@@ -34,7 +30,10 @@ type EditorProps = {
 	highlights?: HighlightWithText[];
 	relationships?: Relationship[];
 	onChange?: RemirrorEventListener<EntityReferenceExtension>;
-	onChangeJSON?: (json: RemirrorJSON) => void;
+	onChangeJSON?: (
+		json: RemirrorJSON,
+		options?: { skipExtraction?: boolean }
+	) => void;
 	renderSidebar?: boolean;
 };
 
@@ -44,6 +43,8 @@ const Editor = forwardRef<
 >((props: EditorProps, ref) => {
 	const { onChange, onChangeJSON } = props;
 	const [errorState, setErrorState] = useState<string | null>(null);
+	const [isEntityModificationInProgress, setIsEntityModificationInProgress] =
+		useState(false);
 
 	// Create the Remirror manager and state
 	const { manager, state, setState, getContext } = useRemirror({
@@ -121,10 +122,6 @@ const Editor = forwardRef<
 				}
 				return true;
 			});
-
-			console.log(
-				`[Debug] Synced highlight map with ${getHighlightCount()} highlights`
-			);
 		} catch (error) {
 			console.error("Error syncing highlight map:", error);
 			setErrorState("Error syncing highlights. Please refresh the page.");
@@ -149,17 +146,70 @@ const Editor = forwardRef<
 						return;
 					}
 
-					// Get the current document JSON and save if valid
+					// Check if this is likely an entity reference modification
+					// by inspecting transaction steps
+					let isEntityModification = false;
+
+					if (parameter.tr) {
+						parameter.tr.steps.forEach((step) => {
+							// Try to identify entity reference modifications
+							// We need to use a type assertion because the Step class is complex
+							const stepAny = step as unknown as {
+								mark?: {
+									type?: {
+										name?: string;
+									};
+								};
+								slice?: {
+									content?: {
+										toString?: () => string;
+									};
+								};
+								from?: number;
+								to?: number;
+							};
+
+							// Check if this step is removing an entity reference
+							const isMarkRemoval =
+								stepAny.mark?.type?.name === "entity-reference" &&
+								stepAny.from !== undefined &&
+								stepAny.to !== undefined;
+
+							if (isMarkRemoval) {
+								isEntityModification = true;
+								setIsEntityModificationInProgress(true);
+
+								// Reset the flag after a short delay
+								setTimeout(() => {
+									setIsEntityModificationInProgress(false);
+								}, 100);
+							} else if (
+								stepAny.mark?.type?.name === "entity-reference" ||
+								(stepAny.slice?.content?.toString &&
+									stepAny.slice.content.toString().includes("entity-reference"))
+							) {
+								isEntityModification = true;
+							}
+						});
+					}
+
+					// If we detect entity modifications, don't immediately trigger a change
+					// HighlightButtons will handle saving with the proper options
+					if (isEntityModification || isEntityModificationInProgress) {
+						return;
+					}
+
+					// For regular content changes, proceed with standard save
 					const json = parameter.state.doc.toJSON();
 					if (json.content?.length > 0) {
-						onChangeJSON?.(json);
+						onChangeJSON?.(json, undefined);
 					}
 				} catch (error) {
 					console.error("Error handling editor change:", error);
 					setErrorState("Error updating content. Please try again.");
 				}
 			},
-			[onChange, onChangeJSON, setState]
+			[onChange, onChangeJSON, setState, isEntityModificationInProgress]
 		);
 
 	return (
@@ -186,7 +236,9 @@ const Editor = forwardRef<
 
 					{props.renderSidebar && props.showHighlightButtons && (
 						<div className="absolute left-full top-0 ml-8 pt-4 min-w-[150px] highlight-buttons-sidebar">
-							<HighlightButtons onSave={(json) => onChangeJSON?.(json)} />
+							<HighlightButtons
+								onSave={(json, options) => onChangeJSON?.(json, options)}
+							/>
 						</div>
 					)}
 				</div>

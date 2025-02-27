@@ -9,15 +9,25 @@ import {
 } from "../utils/highlightMap";
 import { LABEL_CONFIGS } from "../utils/constants";
 
+// Define interface for the window object extension
+declare global {
+	interface Window {
+		sessionManagerApi?: {
+			markHighlightAsRemoved?: (id: string) => void;
+		};
+	}
+}
+
 type HighlightButtonsProps = {
-	onSave: (json: RemirrorJSON) => void;
+	onSave: (json: RemirrorJSON, options?: { skipExtraction?: boolean }) => void;
 };
 
 export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 	const { getEntityReferencesAt } = useHelpers<EntityReferenceExtension>();
 	const commands = useCommands<EntityReferenceExtension>();
-	const { getState } = useRemirrorContext();
+	const { getState, view } = useRemirrorContext();
 	const [error, setError] = useState<string | null>(null);
+	const [pendingRemoval, setPendingRemoval] = useState(false);
 
 	// Handle highlight toggle (add or remove)
 	const handleHighlight = useCallback(
@@ -25,6 +35,11 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 			try {
 				// Clear any previous errors
 				setError(null);
+
+				// Don't process new requests if we're in the middle of a removal
+				if (pendingRemoval) {
+					return;
+				}
 
 				const state = getState();
 				const { from, to } = state.selection;
@@ -35,27 +50,95 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 
 				// Find highlights of the specified type
 				const highlightsOfType = highlightsAt.filter((h) => {
-					return getHighlight(h.id) === labelId;
+					const highlightType = getHighlight(h.id);
+					return highlightType === labelId;
 				});
 
 				// Check if there are any highlights of this type at the current position
 				const active = highlightsOfType.length > 0;
 
-				console.log(
-					`[Debug] Highlight type ${labelId}: active=${active}, found=${highlightsOfType.length} at cursor`
-				);
-
 				if (active) {
-					// REMOVE HIGHLIGHT: If this type is already highlighted, remove it
+					// Set pending removal flag to prevent race conditions
+					setPendingRemoval(true);
+
+					// Keep track of all removed highlight IDs
+					const removedHighlightIds = new Set<string>();
+
+					// Get direct access to Remirror view for direct document manipulation
+					if (!view) {
+						console.error("Remirror view not available");
+						setPendingRemoval(false);
+						return;
+					}
+
+					// Execute removal for all matching highlights
 					highlightsOfType.forEach((highlight) => {
-						console.log(`[Debug] Removing highlight ${highlight.id}`);
-						commands.removeEntityReference(highlight.id);
-						deleteHighlight(highlight.id);
+						try {
+							// Create a direct transaction to remove the entity reference mark
+							const { tr } = view.state;
+
+							// Find the mark type for entity-reference
+							const schema = view.state.schema;
+							// Access the mark type directly from the schema
+							const entityRefType = schema.marks["entity-reference"];
+
+							if (!entityRefType) {
+								console.error("Entity reference mark type not found in schema");
+								return;
+							}
+
+							// Apply a transaction that removes this specific entity reference mark
+							// from the range where it exists
+							const transaction = tr.removeMark(
+								highlight.from,
+								highlight.to,
+								entityRefType
+							);
+
+							// Dispatch the transaction to update the document
+							view.dispatch(transaction);
+
+							// Delete from the highlight map
+							deleteHighlight(highlight.id);
+							removedHighlightIds.add(highlight.id);
+
+							// Also notify SessionManager of removed highlights
+							if (
+								window.sessionManagerApi &&
+								window.sessionManagerApi.markHighlightAsRemoved
+							) {
+								try {
+									window.sessionManagerApi.markHighlightAsRemoved(highlight.id);
+								} catch {
+									// Ignore if implementation fails
+								}
+							}
+						} catch (error) {
+							console.error(`Error removing highlight ${highlight.id}:`, error);
+						}
 					});
+
+					// Use setTimeout to ensure the view has updated
+					// before checking the post-removal state
+					setTimeout(() => {
+						try {
+							// Check if highlights were actually removed
+							const postRemovalState = getState();
+
+							// Save the updated content with skipExtraction flag
+							const json = postRemovalState.doc.toJSON();
+							onSave(json, { skipExtraction: true });
+
+							// Reset the pending removal flag
+							setPendingRemoval(false);
+						} catch (err) {
+							console.error("Error in highlight removal:", err);
+							setPendingRemoval(false);
+						}
+					}, 50); // Small delay to ensure transaction completes
 				} else if (hasSelection) {
 					// ADD HIGHLIGHT: If we have a selection, add a new highlight
 					const id = crypto.randomUUID();
-					console.log(`[Debug] Adding highlight ${id} with type ${labelId}`);
 
 					// Store the highlight type in our map
 					setHighlight(id, labelId);
@@ -65,26 +148,23 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 						labelType: labelId,
 						type: labelId,
 					});
-				} else {
-					// No selection - show error
-					setError("Please select some text to highlight");
-					return;
-				}
 
-				// After any change, save the updated content
-				setTimeout(() => {
-					const updatedState = getState();
-					const json = updatedState.doc.toJSON();
-					onSave(json);
-				}, 0);
+					// Use setTimeout to ensure the command has been processed
+					setTimeout(() => {
+						const updatedState = getState();
+						const json = updatedState.doc.toJSON();
+						onSave(json);
+					}, 20);
+				}
 			} catch (error) {
 				console.error("Error toggling highlight:", error);
 				setError(
 					`Error: ${error instanceof Error ? error.message : String(error)}`
 				);
+				setPendingRemoval(false);
 			}
 		},
-		[getState, getEntityReferencesAt, commands, onSave]
+		[getState, getEntityReferencesAt, commands, onSave, pendingRemoval, view]
 	);
 
 	return (
@@ -106,7 +186,9 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 						className={`
 							flex items-center gap-2 text-left transition-all group
 							${active ? "bg-gray-100 rounded p-1" : "p-1"}
+							${pendingRemoval ? "opacity-50 cursor-wait" : ""}
 						`}
+						disabled={pendingRemoval}
 						title={
 							active
 								? `Remove ${label.name} highlight`
@@ -126,9 +208,14 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 							`}
 						>
 							{label.name}
-							{active && (
+							{active && !pendingRemoval && (
 								<span className="ml-1 text-xs text-gray-500">
 									(click to remove)
+								</span>
+							)}
+							{active && pendingRemoval && (
+								<span className="ml-1 text-xs text-gray-500">
+									(removing...)
 								</span>
 							)}
 						</span>

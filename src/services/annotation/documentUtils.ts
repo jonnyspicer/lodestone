@@ -83,11 +83,6 @@ export function createDocumentWithMarks(
 			.map((node) => node.text || "")
 			.join("");
 
-		// Log debug info
-		console.log(
-			`[Debug] Processing paragraph ${paragraphIndex} with ${paragraphAnnotations.length} annotations`
-		);
-
 		// Collect all text segments and their highlights
 		// This will help us rebuild the paragraph with all highlights intact
 		interface TextSegment {
@@ -246,8 +241,8 @@ export function createDocumentWithMarks(
 				type: string;
 				attrs: {
 					id: string;
-					labelType: string;
-					type: string;
+					labelType?: string;
+					type?: string;
 				};
 			}>;
 		}> = segments.map((segment) => {
@@ -258,8 +253,8 @@ export function createDocumentWithMarks(
 					type: string;
 					attrs: {
 						id: string;
-						labelType: string;
-						type: string;
+						labelType?: string;
+						type?: string;
 					};
 				}>;
 			} = {
@@ -281,11 +276,6 @@ export function createDocumentWithMarks(
 
 			return node;
 		});
-
-		// Log what we're doing
-		console.log(
-			`[Debug] Replacing paragraph content with ${newParagraphContent.length} segments containing ${allHighlights.length} highlights`
-		);
 
 		// Replace the paragraph content
 		paragraph.content = newParagraphContent;
