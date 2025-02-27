@@ -72,7 +72,7 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 				);
 			}
 		},
-		[id, mode, session, content]
+		[id, mode, session]
 	);
 
 	const handleAnalyse = async () => {
