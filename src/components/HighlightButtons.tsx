@@ -87,16 +87,41 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 								return;
 							}
 
-							// Apply a transaction that removes this specific entity reference mark
-							// from the range where it exists
-							const transaction = tr.removeMark(
-								highlight.from,
-								highlight.to,
-								entityRefType
+							// First, identify any other entity references at this position with different label types
+							// that we want to preserve
+							const allHighlightsAtPosition = highlightsAt.filter(
+								(h) =>
+									h.from === highlight.from &&
+									h.to === highlight.to &&
+									h.id !== highlight.id
 							);
 
-							// Dispatch the transaction to update the document
-							view.dispatch(transaction);
+							// Apply a transaction that removes this specific entity reference mark
+							view.dispatch(
+								tr.removeMark(highlight.from, highlight.to, entityRefType)
+							);
+
+							// For each other label type at this position, create a new entity reference
+							allHighlightsAtPosition.forEach((otherHighlight) => {
+								const otherLabelType = getHighlight(otherHighlight.id);
+								if (otherLabelType && otherLabelType !== labelId) {
+									// Create a new entity reference with the same label type
+									const newId = crypto.randomUUID();
+									setHighlight(newId, otherLabelType);
+
+									// Create and dispatch a transaction to add the new entity reference
+									const addTr = view.state.tr.addMark(
+										highlight.from,
+										highlight.to,
+										schema.marks["entity-reference"].create({
+											id: newId,
+											labelType: otherLabelType,
+											type: otherLabelType,
+										})
+									);
+									view.dispatch(addTr);
+								}
+							});
 
 							// Delete from the highlight map
 							deleteHighlight(highlight.id);
