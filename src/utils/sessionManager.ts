@@ -10,15 +10,6 @@ import { setHighlight, getHighlight } from "./highlightMap";
 
 type HighlightType = HighlightWithText[];
 
-interface HighlightMark {
-	type: "entity-reference";
-	attrs: {
-		id: string;
-		labelType: string;
-		type: string;
-	};
-}
-
 export class SessionManager {
 	/**
 	 * Create a new session with initial text content
@@ -276,86 +267,39 @@ export class SessionManager {
 			);
 		}
 
-		// Check if this content already has highlights embedded in the marks
-		let hasHighlightsInContent = false;
-
-		if (content.content) {
-			// Check for entity reference marks in the content
-			content.content.forEach((paragraph) => {
-				if (paragraph.content) {
-					paragraph.content.forEach((node) => {
-						if (node.marks) {
-							node.marks.forEach((mark) => {
-								if (
-									typeof mark === "object" &&
-									mark.type === "entity-reference" &&
-									mark.attrs
-								) {
-									hasHighlightsInContent = true;
-								}
-							});
-						}
-					});
-				}
-			});
-		}
-		// Determine which highlights to use for document creation
-		// Priority:
-		// 1. If highlights array is provided and not empty, use that
-		// 2. If content has entity references but highlights array is empty, extract them
-		// 3. Otherwise use existing highlights from session
+		// Determine which highlights to use
 		let highlightsToUse = highlights;
 
-		if (highlights.length === 0 && hasHighlightsInContent) {
-			// Extract highlights from content marks
+		// If no highlights provided, try to extract them from content marks
+		if (highlightsToUse.length === 0) {
 			highlightsToUse = await SessionManager.extractHighlightsFromContentMarks(
 				content
 			);
+			console.log(
+				`[Debug] Extracted ${highlightsToUse.length} highlights from content`
+			);
 		}
-
-		if (highlightsToUse.length === 0 && session.analysedContent.highlights) {
-			highlightsToUse = session.analysedContent.highlights;
-		}
-
-		// Get full text to help with highlight sorting
-		const fullText =
-			content.content
-				?.map((paragraph) => {
-					return paragraph.content
-						?.map((node) => node.text || "")
-						.filter(Boolean)
-						.join("");
-				})
-				.filter(Boolean)
-				.join("\n") || "";
-
-		// Sort highlights by position in text
-		const sortedHighlights = [...highlightsToUse].sort((a, b) => {
-			const aIndex = fullText.indexOf(a.text);
-			const bIndex = fullText.indexOf(b.text);
-			return aIndex - bIndex;
-		});
 
 		// Import the createDocumentWithMarks function to apply highlights consistently
 		const { createDocumentWithMarks } = await import(
 			"../services/annotation/documentUtils"
 		);
 
-		// Always apply highlights to ensure consistency
+		// Apply highlights to ensure consistency
 		const contentWithHighlights = createDocumentWithMarks(
 			content,
-			sortedHighlights
+			highlightsToUse
 		);
 
 		const update = {
 			...session,
-			highlightCount: sortedHighlights.length,
+			highlightCount: highlightsToUse.length,
 			analysedContent: {
 				...session.analysedContent,
 				content: contentWithHighlights,
-				highlights: sortedHighlights,
+				highlights: highlightsToUse,
 				relationships,
-				highlightCount: sortedHighlights.length,
+				highlightCount: highlightsToUse.length,
 				updatedAt: new Date(),
 			},
 			lastModified: new Date(),
@@ -404,68 +348,34 @@ export class SessionManager {
 		if (!session) throw new Error("Session not found");
 
 		if (session.analysedContent) {
-			// First use the stored highlights array if it exists and has content
+			// Use the stored highlights if they exist
 			if (
 				session.analysedContent.highlights &&
 				session.analysedContent.highlights.length > 0
 			) {
-				const result = {
+				return {
 					content: session.analysedContent.content,
 					highlights: session.analysedContent.highlights,
 					relationships: session.analysedContent.relationships,
 				};
-				return result;
 			}
 
-			// Fallback: Extract highlights from content marks if the array is empty
-			const highlights: HighlightType = [];
-			let markCount = 0;
+			// If no stored highlights, extract them from content marks
+			const highlights = await this.extractHighlightsFromContentMarks(
+				session.analysedContent.content
+			);
 
-			session.analysedContent.content.content?.forEach((node) => {
-				if (node.type === "paragraph" && node.content) {
-					node.content.forEach((textNode) => {
-						const highlightMark = textNode.marks?.find(
-							(mark): mark is HighlightMark =>
-								typeof mark === "object" &&
-								mark.type === "entity-reference" &&
-								"attrs" in mark &&
-								typeof mark.attrs === "object" &&
-								mark.attrs !== null &&
-								"id" in mark.attrs &&
-								"labelType" in mark.attrs &&
-								"type" in mark.attrs
-						);
-
-						if (highlightMark && textNode.text) {
-							markCount++;
-							highlights.push({
-								id: highlightMark.attrs.id,
-								labelType: highlightMark.attrs.labelType,
-								text: textNode.text,
-								attrs: {
-									labelType: highlightMark.attrs.labelType,
-									type: highlightMark.attrs.type,
-								},
-							});
-						}
-					});
-				}
-			});
-
-			console.log(`Extracted ${markCount} highlight marks from content`);
-
-			const result = {
+			return {
 				content: session.analysedContent.content,
 				highlights: highlights,
 				relationships: session.analysedContent.relationships,
 			};
-			return result;
 		}
 
-		const result = {
+		// If no analysed content, return input content
+		return {
 			content: session.inputContent.content,
 		};
-		return result;
 	}
 
 	/**
@@ -489,101 +399,68 @@ export class SessionManager {
 		const highlights: HighlightType = [];
 		const seenIds = new Set<string>();
 
-		// Process each paragraph and look for entity reference marks
-		content.content?.forEach((paragraph, paragraphIndex) => {
-			if (!paragraph.content) return;
+		// Define types for document nodes
+		interface NodeMark {
+			type: string;
+			attrs?: {
+				id?: string;
+				labelType?: string;
+				type?: string;
+				[key: string]: unknown;
+			};
+		}
 
-			// Track position within the text
-			let paragraphStart = 0;
+		interface DocNode {
+			type?: string;
+			text?: string;
+			marks?: NodeMark[];
+			content?: DocNode[];
+			[key: string]: unknown;
+		}
 
-			// Find the start position of this paragraph in the full text
-			if (paragraphIndex > 0) {
-				const previousText = content.content
-					?.slice(0, paragraphIndex)
-					.map((p) => {
-						return p.content
-							?.map((n) => n.text || "")
-							.filter(Boolean)
-							.join("");
-					})
-					.filter(Boolean)
-					.join("\n");
-				paragraphStart = (previousText?.length || 0) + paragraphIndex; // +1 for each newline
-			}
-
-			let nodeStart = paragraphStart;
-
-			paragraph.content.forEach((node) => {
-				if (!node.marks || !node.text) {
-					nodeStart += node.text?.length || 0;
-					return;
-				}
-
+		// Recursive function to traverse the document and find entity reference marks
+		const processNode = (node: DocNode, textPosition = 0): number => {
+			// Handle text nodes with marks
+			if (node.text && node.marks) {
 				// Find entity reference marks
 				const entityMarks = node.marks.filter(
-					(mark): mark is HighlightMark =>
-						typeof mark === "object" &&
-						mark.type === "entity-reference" &&
-						typeof mark.attrs === "object" &&
-						mark.attrs !== null
+					(mark) => mark.type === "entity-reference" && mark.attrs != null
 				);
 
 				for (const mark of entityMarks) {
 					// Skip if no ID or already processed
-					if (!mark.attrs.id || seenIds.has(mark.attrs.id)) {
+					if (!mark.attrs?.id || seenIds.has(mark.attrs.id)) {
 						continue;
 					}
 
 					const id = String(mark.attrs.id);
+					seenIds.add(id);
 
-					// Get the label type with fallbacks
-					let labelType: string | null = null;
+					// Determine label type with simplified priority logic
+					let labelType: string = "claim"; // Default fallback
 
-					// First check explicit labelType attribute
-					if (
-						typeof mark.attrs.labelType === "string" &&
-						mark.attrs.labelType
-					) {
+					// Priority: 1. Mark's labelType, 2. Mark's type, 3. Global highlight map, 4. Default
+					if (mark.attrs.labelType) {
 						labelType = mark.attrs.labelType;
-					}
-					// Then fallback to type attribute
-					else if (typeof mark.attrs.type === "string" && mark.attrs.type) {
+					} else if (mark.attrs.type) {
 						labelType = mark.attrs.type;
-					}
-					// If we still don't have a type, try to get it from the highlight map
-					else {
-						const highlightType = getHighlight(id);
-						if (highlightType) {
-							labelType = highlightType;
-						}
-					}
-
-					if (!labelType) {
-						// Check global highlight map before defaulting to claim
+					} else {
 						const savedType = getHighlight(id);
 						if (savedType) {
 							labelType = savedType;
-						} else {
-							console.warn(
-								`[DEBUG] Mark ${id} has no label type, using "claim" as fallback`
-							);
-							labelType = "claim"; // Default fallback to ensure we don't lose highlights
 						}
 					}
 
-					// Ensure the highlight map is always updated with the correct label
-					if (labelType) {
-						setHighlight(id, labelType);
-					}
-					seenIds.add(id);
+					// Always keep the highlight map in sync
+					setHighlight(id, labelType);
 
-					// Add to highlights list with exact text
+					// Add to highlights list
 					highlights.push({
 						id,
-						labelType, // Ensure both attributes are set consistently
+						labelType,
 						text: node.text,
-						startIndex: nodeStart,
-						endIndex: nodeStart + node.text.length,
+						startIndex: textPosition,
+						endIndex: textPosition + node.text.length,
 						attrs: {
 							labelType,
 							type: labelType,
@@ -591,13 +468,39 @@ export class SessionManager {
 					});
 				}
 
-				nodeStart += node.text.length;
-			});
-		});
+				return node.text.length;
+			}
+			// Handle other node types recursively
+			else if (node.content) {
+				let position = textPosition;
+				let length = 0;
+
+				node.content.forEach((child) => {
+					const nodeLength = processNode(child, position);
+					position += nodeLength;
+					length += nodeLength;
+				});
+
+				// Add newline for block nodes when they're not the last child
+				if (node.type && ["paragraph", "heading"].includes(node.type)) {
+					length += 1; // Account for newline
+				}
+
+				return length;
+			}
+
+			return 0;
+		};
+
+		// Process the document from the root
+		if (content.content) {
+			content.content.forEach((node) => processNode(node as DocNode));
+		}
 
 		console.log(
 			`[DEBUG] Extracted ${highlights.length} highlight marks from content`
 		);
+
 		return highlights;
 	}
 }

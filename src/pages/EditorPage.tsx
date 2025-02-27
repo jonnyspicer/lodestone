@@ -9,17 +9,6 @@ import { SessionManager } from "../utils/sessionManager";
 import { modelServices } from "../services/models";
 import { detailedPrompt } from "../evals/prompts";
 
-// Define the highlight type inline since we're using it in multiple places
-type Highlight = {
-	id: string;
-	labelType: string;
-	text: string;
-	attrs?: {
-		labelType: string;
-		type: string;
-	};
-};
-
 type EditorPageProps = {
 	mode: "input" | "analysis";
 };
@@ -47,16 +36,10 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 	}, [id]);
 
 	const handleEditorChange = useCallback(
-		async (json: RemirrorJSON & { highlights?: Highlight[] }) => {
+		async (json: RemirrorJSON) => {
 			if (!id) return;
 
-			// Extract highlights from the editor state
-			const highlights = json.highlights || [];
-
-			// Debug log for highlight stability tracking
-			console.log(
-				`handleEditorChange called with ${highlights.length} highlights`
-			);
+			console.log(`[Debug] Editor content changed`);
 
 			// Check if we got an empty update that might just be a cursor movement
 			const isEmpty =
@@ -65,46 +48,28 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 				!json.content[0].content ||
 				json.content[0].content.length === 0;
 
-			if (isEmpty && content?.highlights?.length) {
-				console.log("Received empty update, preserving existing highlights");
-				// Preserve existing highlights if we get an empty update
+			if (isEmpty) {
+				console.log("[Debug] Received empty update, ignoring");
 				return;
 			}
 
 			if (mode === "input") {
 				await SessionManager.updateInputContent(parseInt(id), json);
 			} else if (mode === "analysis" && session?.analysedContent) {
-				// First check if we have highlights explicitly in the json
-				if (highlights.length > 0) {
-					// Update analysed content with current highlights and relationships
-					await SessionManager.updateAnalysedContent(
-						parseInt(id),
-						json,
-						highlights,
-						session.analysedContent.relationships
-					);
-				} else {
-					// Get the previous highlights if available
-					const previousHighlights = session.analysedContent.highlights || [];
+				// Extract highlights directly from the document
+				const extractedHighlights =
+					await SessionManager.extractHighlightsFromContentMarks(json);
+				console.log(
+					`[Debug] Extracted ${extractedHighlights.length} highlights from document`
+				);
 
-					// Try to extract highlights from the content first
-					const extractedHighlights =
-						await SessionManager.extractHighlightsFromContentMarks(json);
-
-					// Use extracted highlights or fall back to previous highlights
-					const highlightsToUse =
-						extractedHighlights.length > 0
-							? extractedHighlights
-							: previousHighlights;
-
-					// Update analysed content with the selected highlights
-					await SessionManager.updateAnalysedContent(
-						parseInt(id),
-						json,
-						highlightsToUse,
-						session.analysedContent.relationships
-					);
-				}
+				// Use the document as the source of truth for highlights
+				await SessionManager.updateAnalysedContent(
+					parseInt(id),
+					json,
+					extractedHighlights,
+					session.analysedContent.relationships
+				);
 			}
 		},
 		[id, mode, session, content]
