@@ -8,6 +8,7 @@ import { setHighlight } from "../../utils/highlightMap";
  * @param annotations The annotations to apply as marks
  * @returns A new Remirror JSON document with the annotations applied as marks
  */
+
 export function createDocumentWithMarks(
 	originalContent: RemirrorJSON,
 	annotations: HighlightWithText[]
@@ -17,7 +18,6 @@ export function createDocumentWithMarks(
 	}
 
 	// Debug log - number of annotations to apply
-	console.log(`[Debug] Applying ${annotations.length} annotations to document`);
 	console.log(
 		`[Debug] Annotation details:`,
 		annotations.map((a) => ({
@@ -149,10 +149,6 @@ export function createDocumentWithMarks(
 				pos += node.text?.length || 0;
 			});
 		}
-
-		console.log(
-			`[Debug] Found ${existingHighlights.length} existing highlights in paragraph`
-		);
 
 		// Combine existing and new highlights
 		const allHighlights = [...existingHighlights];

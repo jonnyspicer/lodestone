@@ -40,6 +40,7 @@
 
 	/* Editor specific styles */
 	max-width: 900px;
+	min-height: 100%;
 	margin: 0 auto;
 	background-color: var(--rmr-color-background);
 	border: 1px solid var(--rmr-color-border);
@@ -59,7 +60,6 @@
 }
 
 .remirror-theme .ProseMirror {
-	min-height: 200px;
 	padding: var(--rmr-spacing-4) var(--rmr-spacing-7);
 	outline: none;
 	box-shadow: none;
