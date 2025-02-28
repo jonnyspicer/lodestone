@@ -23,8 +23,8 @@ export const SessionsPage = () => {
 
 	const handleSessionClick = (sessionId: number, status: string) => {
 		navigate(
-			status === "input"
-				? `/analyse/${sessionId}`
+			status === "draft"
+				? `/input/${sessionId}`
 				: `/sessions/${sessionId}/analysis`
 		);
 	};
@@ -142,7 +142,7 @@ export const SessionsPage = () => {
 									</p>
 
 									<span className="py-0.5 px-2 text-sm rounded-full font-medium bg-zinc-200 text-zinc-700">
-										{session.status === "input" ? "Draft" : "Analysed"}
+										{session.status === "draft" ? "Draft" : "Analysed"}
 									</span>
 								</div>
 							</div>

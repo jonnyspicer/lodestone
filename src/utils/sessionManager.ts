@@ -56,7 +56,7 @@ export class SessionManager {
 		const session: Omit<Session, "id"> = {
 			title,
 			createdAt: new Date(),
-			status: "input",
+			status: "draft",
 			highlightCount: 0,
 			inputContent: {
 				content: initialContent,

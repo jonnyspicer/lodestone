@@ -30,7 +30,7 @@ export interface Session {
 	id?: number;
 	title: string;
 	createdAt: Date;
-	status: "input" | "analysis";
+	status: "draft" | "analysis";
 	highlightCount: number;
 
 	// Input step content
@@ -74,6 +74,26 @@ export class EditorDatabase extends Dexie {
 			dynamicQuestions:
 				"++id, sessionId, generatedAt, isInitialQuestion, wasShown",
 		});
+
+		// Add a new version to migrate status from "input" to "draft"
+		this.version(12)
+			.stores({
+				editorContent: "++id, updatedAt",
+				sessions: "++id, createdAt, status, lastModified, highlightCount",
+				dynamicQuestions:
+					"++id, sessionId, generatedAt, isInitialQuestion, wasShown",
+			})
+			.upgrade(async (trans) => {
+				// Update existing sessions
+				const sessions = await trans.table("sessions").toCollection().toArray();
+				for (const session of sessions) {
+					if (session.status === "input") {
+						await trans
+							.table("sessions")
+							.update(session.id!, { status: "draft" });
+					}
+				}
+			});
 
 		// Add hooks to ensure content is properly handled
 		this.sessions.hook("reading", (obj) => {
