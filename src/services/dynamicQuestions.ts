@@ -29,6 +29,45 @@ export class DynamicQuestionsService {
 	private static openaiService = new OpenAIService("gpt4o-mini");
 
 	/**
+	 * Save the last text content that triggered question generation for a session
+	 */
+	static async saveLastProcessedContent(
+		sessionId: number,
+		content: string
+	): Promise<void> {
+		try {
+			// Update the session in the database
+			await db.sessions.update(sessionId, {
+				lastProcessedContent: content,
+			});
+
+			console.log(`Saved last processed content for session ${sessionId}`);
+		} catch (error) {
+			console.error("Error saving last processed content:", error);
+		}
+	}
+
+	/**
+	 * Get the last text content that triggered question generation for a session
+	 */
+	static async getLastProcessedContent(sessionId: number): Promise<string> {
+		try {
+			// Get the session from the database
+			const session = await db.sessions.get(sessionId);
+			if (!session) {
+				console.error(`Session ${sessionId} not found`);
+				return "";
+			}
+
+			const content = session.lastProcessedContent || "";
+			return content;
+		} catch (error) {
+			console.error("Error getting last processed content:", error);
+			return "";
+		}
+	}
+
+	/**
 	 * Add default questions for a session
 	 */
 	static async addDefaultQuestions(
@@ -159,6 +198,9 @@ export class DynamicQuestionsService {
 				"Added new dynamic questions to database, count:",
 				ids.length
 			);
+
+			// Save the text that triggered these questions
+			await this.saveLastProcessedContent(options.sessionId, options.text);
 
 			// Return with ids
 			return questions.map((q, i) => ({ ...q, id: ids[i] }));

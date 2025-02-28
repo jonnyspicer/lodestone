@@ -26,6 +26,10 @@ export function useDynamicQuestions({
 	const [questions, setQuestions] = useState<DynamicQuestion[]>([]);
 	const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
 	const [isQuestionsExpanded, setIsQuestionsExpanded] = useState(false);
+	// Add state to track when questions need to be reloaded
+	const [needsReload, setNeedsReload] = useState(false);
+	// State to trigger content comparison after loading last content
+	const [lastContentLoaded, setLastContentLoaded] = useState(false);
 
 	// Refs for tracking question generation
 	const lastGenerationTime = useRef<number>(0);
@@ -33,6 +37,63 @@ export function useDynamicQuestions({
 	const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const hasDefaultQuestionsRef = useRef<boolean>(false);
 	const shouldReloadQuestionsRef = useRef<boolean>(false);
+	// Add ref to store the last content that triggered question generation
+	const lastContentRef = useRef<string>("");
+
+	// Add ref to track if we've loaded the lastProcessedContent
+	const hasLoadedLastContentRef = useRef<boolean>(false);
+
+	// Get/set last generation time from localStorage to persist between remounts
+	useEffect(() => {
+		if (sessionId) {
+			// Try to retrieve last generation time from localStorage
+			const savedTime = localStorage.getItem(`lastGenerationTime_${sessionId}`);
+			if (savedTime) {
+				lastGenerationTime.current = parseInt(savedTime, 10);
+			}
+		}
+	}, [sessionId]);
+
+	// Save lastGenerationTime to localStorage when it changes
+	useEffect(() => {
+		return () => {
+			if (sessionId && lastGenerationTime.current > 0) {
+				localStorage.setItem(
+					`lastGenerationTime_${sessionId}`,
+					lastGenerationTime.current.toString()
+				);
+			}
+		};
+	}, [sessionId]);
+
+	// Initialize lastContentRef from database when sessionId is available
+	useEffect(() => {
+		if (sessionId) {
+			// Load the last processed content from the database
+			(async () => {
+				try {
+					const savedContent =
+						await DynamicQuestionsService.getLastProcessedContent(sessionId);
+
+					if (savedContent) {
+						lastContentRef.current = savedContent;
+						hasLoadedLastContentRef.current = true;
+						// Trigger content comparison now that we have loaded the last content
+						setLastContentLoaded((prev) => !prev);
+					} else {
+						// Even if no content was found, mark as loaded so we can proceed
+						hasLoadedLastContentRef.current = true;
+						setLastContentLoaded((prev) => !prev);
+					}
+				} catch (error) {
+					console.error("Error loading last processed content:", error);
+					// Mark as loaded even in case of error, so the app doesn't get stuck
+					hasLoadedLastContentRef.current = true;
+					setLastContentLoaded((prev) => !prev);
+				}
+			})();
+		}
+	}, [sessionId]);
 
 	// Toggle expand/collapse for questions
 	const handleToggleQuestionsExpand = useCallback(() => {
@@ -80,8 +141,9 @@ export function useDynamicQuestions({
 				}
 			}
 
-			// Reset the reload flag since we've just loaded questions
+			// Reset the reload flags since we've just loaded questions
 			shouldReloadQuestionsRef.current = false;
+			setNeedsReload(false);
 		} catch (error) {
 			console.error("Error loading questions:", error);
 		}
@@ -89,10 +151,10 @@ export function useDynamicQuestions({
 
 	// Effect to load questions when reload flag is set
 	useEffect(() => {
-		if (shouldReloadQuestionsRef.current && sessionId) {
+		if ((needsReload || shouldReloadQuestionsRef.current) && sessionId) {
 			loadQuestions(sessionId);
 		}
-	}, [loadQuestions, sessionId]);
+	}, [loadQuestions, sessionId, needsReload]);
 
 	// Add default questions when first loading
 	useEffect(() => {
@@ -144,6 +206,20 @@ export function useDynamicQuestions({
 
 		// Extract text content from the editor
 		const textContent = extractTextFromContent(content);
+
+		// If we haven't loaded the last content yet, postpone the check
+		if (!hasLoadedLastContentRef.current) {
+			return;
+		}
+
+		// Skip if content hasn't changed since last generation
+		if (
+			textContent === lastContentRef.current &&
+			lastContentRef.current !== ""
+		) {
+			return;
+		}
+
 		const prevLength = contentLengthRef.current;
 		contentLengthRef.current = textContent.length;
 
@@ -161,7 +237,9 @@ export function useDynamicQuestions({
 			timeSinceLastGeneration >= DYNAMIC_QUESTIONS_CONFIG.minTimeBetweenCalls ||
 			textContent.length >= prevLength + 100; // Or if 100+ new characters since last check
 
-		if (!shouldGenerate) return;
+		if (!shouldGenerate) {
+			return;
+		}
 
 		// Set a debounce timer to wait for user to stop typing
 		debounceTimerRef.current = setTimeout(async () => {
@@ -183,7 +261,10 @@ export function useDynamicQuestions({
 				const previousQuestions = allQuestions.map((q) => q.question);
 
 				// Generate new questions
-				console.log("Calling OpenAI to generate new questions");
+				console.log(
+					"Calling OpenAI to generate new questions for session",
+					sessionId
+				);
 				const newQuestions = await DynamicQuestionsService.generateQuestions({
 					text: textContent,
 					sessionId: sessionId,
@@ -197,10 +278,19 @@ export function useDynamicQuestions({
 				if (newQuestions.length > 0) {
 					// Signal that we need to reload questions on next render
 					shouldReloadQuestionsRef.current = true;
+					// Also set the state to trigger the effect that loads questions
+					setNeedsReload(true);
 				}
 
-				// Update the last generation time
+				// Update the last generation time and content
 				lastGenerationTime.current = Date.now();
+				lastContentRef.current = textContent;
+
+				// Persist the last processed content to database
+				await DynamicQuestionsService.saveLastProcessedContent(
+					sessionId,
+					textContent
+				);
 			} catch (error) {
 				console.error("Error generating questions:", error);
 			} finally {
@@ -214,7 +304,7 @@ export function useDynamicQuestions({
 				clearTimeout(debounceTimerRef.current);
 			}
 		};
-	}, [content, topic, sessionId]);
+	}, [content, topic, sessionId, lastContentLoaded]);
 
 	return {
 		questions,

@@ -45,6 +45,9 @@ export interface Session {
 	// Dynamic questions (optional)
 	dynamicQuestions?: DynamicQuestion[];
 
+	// Last processed content for dynamic questions
+	lastProcessedContent?: string;
+
 	lastModified: Date;
 }
 
@@ -94,6 +97,14 @@ export class EditorDatabase extends Dexie {
 					}
 				}
 			});
+
+		// Add a new version to add lastProcessedContent to sessions
+		this.version(13).stores({
+			editorContent: "++id, updatedAt",
+			sessions: "++id, createdAt, status, lastModified, highlightCount",
+			dynamicQuestions:
+				"++id, sessionId, generatedAt, isInitialQuestion, wasShown",
+		});
 
 		// Add hooks to ensure content is properly handled
 		this.sessions.hook("reading", (obj) => {
