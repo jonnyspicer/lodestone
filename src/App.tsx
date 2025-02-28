@@ -31,14 +31,12 @@ const App = () => {
 				{/* Routes */}
 				<Routes>
 					<Route path="/" element={<SessionsPage />} />
-					<Route path="/input" element={<InputPage />} />
 					<Route path="/input/:id" element={<InputPage />} />
 					<Route path="/evals" element={<EvalPage />} />
 					<Route
-						path="/sessions/:id/analysis"
+						path="/analysis/:id"
 						element={<EditorPage mode="analysis" />}
 					/>
-					<Route path="/sessions/:id/input" element={<InputPage />} />
 				</Routes>
 			</div>
 		</Router>

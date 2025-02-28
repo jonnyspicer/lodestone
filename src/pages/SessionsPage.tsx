@@ -23,9 +23,7 @@ export const SessionsPage = () => {
 
 	const handleSessionClick = (sessionId: number, status: string) => {
 		navigate(
-			status === "draft"
-				? `/input/${sessionId}`
-				: `/sessions/${sessionId}/analysis`
+			status === "draft" ? `/input/${sessionId}` : `/analysis/${sessionId}`
 		);
 	};
 
@@ -47,12 +45,31 @@ export const SessionsPage = () => {
 		}
 	};
 
+	const createNewSession = async () => {
+		try {
+			// Create a new session with an empty title and empty content
+			const newSession = await SessionManager.createSession("", {
+				type: "doc",
+				content: [{ type: "paragraph" }],
+			});
+
+			// Navigate directly to the new session with its ID
+			if (newSession.id) {
+				navigate(`/input/${newSession.id}`);
+			} else {
+				console.error("Failed to create a new session: No ID returned");
+			}
+		} catch (error) {
+			console.error("Error creating new session:", error);
+		}
+	};
+
 	return (
 		<div className="p-4 max-w-6xl mx-auto">
 			<div className="flex justify-between items-end mb-6">
 				<h2>Sessions</h2>
 				<button
-					onClick={() => navigate("/input")}
+					onClick={createNewSession}
 					className="px-3 py-1.5 bg-white text-zinc-700 text-sm rounded-full hover:shadow-lg shadow-sm border border-zinc-100 hover:border-zinc-200 transition-all font-medium flex items-center gap-1"
 				>
 					<svg

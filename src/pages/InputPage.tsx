@@ -1,14 +1,13 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate, useParams, useBeforeUnload } from "react-router-dom";
 import type { RemirrorJSON } from "remirror";
-import { useLiveQuery } from "dexie-react-hooks";
 import Editor from "../components/Editor";
 import { SessionManager } from "../utils/sessionManager";
 import { modelServices } from "../services/models";
 import { detailedPrompt } from "../evals/prompts";
 import { DynamicQuestionsService } from "../services/dynamicQuestions";
 import DynamicQuestionsPanel from "../components/DynamicQuestionsPanel";
-import { DynamicQuestion } from "../db";
+import { DynamicQuestion, Session } from "../db";
 
 // Configuration for dynamic questions feature
 const DYNAMIC_QUESTIONS_CONFIG = {
@@ -28,8 +27,6 @@ export const InputPage = () => {
 	const [isCreating, setIsCreating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [isDirty, setIsDirty] = useState(false);
-	const [newSessionCreationInProgress, setNewSessionCreationInProgress] =
-		useState(false);
 
 	// Dynamic questions state
 	const [questions, setQuestions] = useState<DynamicQuestion[]>([]);
@@ -44,6 +41,10 @@ export const InputPage = () => {
 	const sessionIdChangeTracker = useRef<number>(0);
 	// Add a ref to track when we need to reload questions
 	const shouldReloadQuestionsRef = useRef<boolean>(false);
+
+	// Load existing session if we have an ID
+	const [session, setSession] = useState<Session | null>(null);
+	const [isLoading, setIsLoading] = useState(true);
 
 	// Memoize the content extraction function to prevent unnecessary recalculations
 	const extractTextFromContent = useCallback((json: RemirrorJSON): string => {
@@ -78,12 +79,6 @@ export const InputPage = () => {
 
 		return text;
 	}, []);
-
-	// Load existing session if we have an ID
-	const session = useLiveQuery(async () => {
-		if (!id) return null;
-		return SessionManager.getSession(parseInt(id));
-	}, [id]);
 
 	// Load existing questions for this session
 	const loadQuestions = useCallback(async (sessionId: number) => {
@@ -133,67 +128,54 @@ export const InputPage = () => {
 		}
 	}, []);
 
-	// Initialize content from session if it exists
+	// Fetch session once on component mount
 	useEffect(() => {
-		if (session) {
-			setTopic(session.title);
-			setContent(session.inputContent.content);
+		const fetchSession = async () => {
+			if (!id) return;
+			try {
+				setIsLoading(true);
+				const fetchedSession = await SessionManager.getSession(parseInt(id));
+				if (fetchedSession) {
+					setSession(fetchedSession);
+					setTopic(fetchedSession.title);
+					setContent(fetchedSession.inputContent.content);
 
-			// Store session ID in ref for question generation
-			if (session.id) {
-				sessionIdRef.current = session.id;
-				// Increment the tracker to signal the session ID has changed
-				sessionIdChangeTracker.current += 1;
-				// Load questions for this session
-				loadQuestions(session.id);
+					// Store session ID in ref for question generation
+					if (fetchedSession.id) {
+						sessionIdRef.current = fetchedSession.id;
+						// Increment the tracker to signal the session ID has changed
+						sessionIdChangeTracker.current += 1;
+						// Load questions for this session
+						loadQuestions(fetchedSession.id);
+					}
+				}
+			} catch (error) {
+				console.error("Error fetching session:", error);
+			} finally {
+				setIsLoading(false);
 			}
-		}
-	}, [session, loadQuestions]);
+		};
+
+		fetchSession();
+	}, [id, loadQuestions]);
 
 	// Create a new session when the user starts typing if they don't have one yet
 	useEffect(() => {
-		// Only run this effect if there's no ID from the URL, no existing session ID, and not already creating a session
-		if (!id && !sessionIdRef.current && !newSessionCreationInProgress) {
-			const textContent = extractTextFromContent(content).trim();
-
-			// Only create a session if the user has actually typed something
-			if (textContent.length > 0) {
-				setNewSessionCreationInProgress(true);
-
-				// Create a new session
-				(async () => {
-					try {
-						const newSession = await SessionManager.createSession(
-							topic || "Untitled",
-							content
-						);
-						if (newSession.id) {
-							sessionIdRef.current = newSession.id;
-							// Increment the tracker to signal the session ID has changed
-							sessionIdChangeTracker.current += 1;
-
-							// Add default questions immediately after creating the session
-							const defaultQuestions =
-								await DynamicQuestionsService.addDefaultQuestions(
-									newSession.id
-								);
-							setQuestions(defaultQuestions);
-							hasDefaultQuestionsRef.current = true;
-
-							// Update the URL to include the new session ID but without a full page reload
-							navigate(`/input/${newSession.id}`, { replace: true });
-						} else {
-							console.error("Failed to create session: No session ID returned");
-						}
-					} catch (error) {
-						console.error("Error creating new session:", error);
-					} finally {
-						setNewSessionCreationInProgress(false);
-					}
-				})();
-			}
+		// If there's no ID in the URL, redirect to the sessions page
+		// This should not happen with our new flow, but this is a safety measure
+		if (!id) {
+			navigate("/");
+			return;
 		}
-	}, [id, content, topic, navigate, extractTextFromContent]);
+
+		// Only run this effect if there's an ID from the URL but no session ID ref set yet
+		if (id && !sessionIdRef.current) {
+			// Store the ID for question generation
+			sessionIdRef.current = parseInt(id);
+			// Increment the tracker to signal the session ID has changed
+			sessionIdChangeTracker.current += 1;
+		}
+	}, [id, navigate]);
 
 	// Add default questions when first loading (if we have a session ID from the URL)
 	useEffect(() => {
@@ -238,7 +220,7 @@ export const InputPage = () => {
 				}
 			})();
 		}
-	}, [id, sessionIdChangeTracker.current]); // Using the tracker value instead of the ref directly
+	}, [id, questions.length]); // Using the tracker value instead of the ref directly
 
 	// Effect to load questions when reload flag is set
 	// This separates the question loading from generation
@@ -340,7 +322,7 @@ export const InputPage = () => {
 		};
 	}, [content, topic, extractTextFromContent, loadQuestions]); // Removed 'questions' from dependencies!
 
-	// Save changes to existing session
+	// Save changes to existing session - but don't use a timer for auto-save
 	const saveChanges = useCallback(async () => {
 		if (!id || !isDirty) return;
 
@@ -348,33 +330,30 @@ export const InputPage = () => {
 			await SessionManager.updateInputContent(parseInt(id), content);
 			await SessionManager.updateSessionTitle(parseInt(id), topic);
 			setIsDirty(false);
+			console.log("Changes saved successfully");
 		} catch (error) {
 			console.error("Failed to save changes:", error);
 		}
 	}, [id, content, topic, isDirty]);
 
-	// Auto-save changes every 2 seconds if the content is dirty
-	useEffect(() => {
-		if (!isDirty) return;
-
-		const timer = setTimeout(saveChanges, 2000);
-		return () => clearTimeout(timer);
-	}, [isDirty, saveChanges]);
-
 	// Handle content changes
-	const handleContentChange = useCallback(
-		(json: RemirrorJSON) => {
-			setContent(json);
-			setIsDirty(true);
-		},
-		[extractTextFromContent]
-	);
+	const handleContentChange = useCallback((json: RemirrorJSON) => {
+		setContent(json);
+		setIsDirty(true);
+	}, []);
 
 	// Handle topic changes
 	const handleTopicChange = useCallback((newTopic: string) => {
 		setTopic(newTopic);
 		setIsDirty(true);
 	}, []);
+
+	// Save when input field loses focus
+	const handleInputBlur = useCallback(() => {
+		if (isDirty) {
+			saveChanges();
+		}
+	}, [isDirty, saveChanges]);
 
 	// Save before leaving
 	useEffect(() => {
@@ -398,20 +377,15 @@ export const InputPage = () => {
 		setIsCreating(true);
 		setError(null);
 		try {
-			let sessionId: number | null = id ? parseInt(id) : sessionIdRef.current;
+			// First save any pending changes
+			if (isDirty) {
+				await saveChanges();
+			}
+
+			const sessionId: number | null = id ? parseInt(id) : sessionIdRef.current;
 
 			if (!sessionId) {
-				// Create a new session if needed
-				const newSession = await SessionManager.createSession(topic, content);
-				if (!newSession.id) {
-					throw new Error("Failed to create session: No session ID returned");
-				}
-				sessionId = newSession.id;
-				sessionIdRef.current = sessionId;
-			} else {
-				// Save any pending changes
-				await SessionManager.updateInputContent(sessionId, content);
-				await SessionManager.updateSessionTitle(sessionId, topic);
+				throw new Error("No session ID available for analysis");
 			}
 
 			// Get the GPT-4o-mini service
@@ -445,14 +419,21 @@ export const InputPage = () => {
 			);
 
 			// Navigate directly to editor page in analysis mode
-			navigate(`/sessions/${sessionId}/analysis`);
+			navigate(`/analysis/${sessionId}`);
 		} catch (error) {
 			console.error("Failed to create and analyse session:", error);
 			setError(error instanceof Error ? error.message : "Unknown error");
 		} finally {
 			setIsCreating(false);
 		}
-	}, [id, topic, content, navigate, extractTextFromContent]);
+	}, [
+		id,
+		content,
+		isDirty,
+		saveChanges,
+		navigate,
+		extractTextFromContent,
+	]);
 
 	// Toggle expand/collapse for questions - memoize to prevent new function references
 	const handleToggleQuestionsExpand = useCallback(() => {
@@ -486,84 +467,95 @@ export const InputPage = () => {
 
 	return (
 		<div className="max-w-5xl mx-auto p-8 mb-24">
-			<div>
-				<label className="uppercase text-zinc-600 text-sm font-medium mb-2 block tracking-wider">
-					Topic
-				</label>
-				<input
-					type="text"
-					value={topic}
-					onChange={(e) => handleTopicChange(e.target.value)}
-					placeholder="What do you want to write about?"
-					className="w-full px-6 py-5 border rounded-lg remirror-theme"
-				/>
-			</div>
-
-			<div className="mt-8 flex">
-				{/* Main content area */}
-				<div className="flex-1">
-					<label className="uppercase text-zinc-600 text-sm font-medium mb-2 block tracking-wider">
-						Initial Ideas
-					</label>
-					<div className="min-h-[400px]">
-						<Editor
-							placeholder={`Write down all your initial ideas and opinions, unorganised and unfiltered. The more the better.`}
-							initialContent={content}
-							onChangeJSON={handleContentChange}
+			{isLoading ? (
+				<div className="flex items-center justify-center py-12">
+					<div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+					<span className="ml-3">Loading session...</span>
+				</div>
+			) : (
+				<>
+					<div>
+						<label className="uppercase text-zinc-600 text-sm font-medium mb-2 block tracking-wider">
+							Topic
+						</label>
+						<input
+							type="text"
+							value={topic}
+							onChange={(e) => handleTopicChange(e.target.value)}
+							onBlur={handleInputBlur}
+							placeholder="What do you want to write about?"
+							className="w-full px-6 py-5 border rounded-lg remirror-theme"
 						/>
 					</div>
-				</div>
 
-				{/* Questions panel on the right - always render the panel */}
-				<div className="ml-6 w-72">
-					<DynamicQuestionsPanel {...questionsProps} />
-				</div>
-			</div>
+					<div className="mt-8 flex">
+						{/* Main content area */}
+						<div className="flex-1">
+							<label className="uppercase text-zinc-600 text-sm font-medium mb-2 block tracking-wider">
+								Initial Ideas
+							</label>
+							<div className="min-h-[400px]">
+								<Editor
+									placeholder={`Write down all your initial ideas and opinions, unorganised and unfiltered. The more the better.`}
+									initialContent={content}
+									onChangeJSON={handleContentChange}
+								/>
+							</div>
+						</div>
 
-			{error && (
-				<div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded relative mt-4">
-					<strong className="font-bold">Error: </strong>
-					<span className="block sm:inline">{error}</span>
-				</div>
-			)}
+						<div className="ml-6 w-72">
+							<DynamicQuestionsPanel {...questionsProps} />
+						</div>
+					</div>
 
-			<div className="mt-4">
-				<button
-					onClick={handleAnalyse}
-					disabled={!canProceed || isCreating}
-					className={`w-full p-4 rounded-lg text-white transition-colors duration-200 ${
-						canProceed ? "bg-primary hover:bg-primaryDark" : "bg-zinc-400"
-					}`}
-				>
-					{isCreating ? (
-						<span className="flex items-center justify-center">
-							<svg
-								className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-								xmlns="http://www.w3.org/2000/svg"
-								fill="none"
-								viewBox="0 0 24 24"
-							>
-								<circle
-									className="opacity-25"
-									cx="12"
-									cy="12"
-									r="10"
-									stroke="currentColor"
-									strokeWidth="4"
-								></circle>
-								<path
-									className="opacity-75"
-									fill="currentColor"
-									d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-								></path>
-							</svg>
-							Analysing
-						</span>
-					) : (
-						<>Analyse →</>
+					{error && (
+						<div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded relative mt-4">
+							<strong className="font-bold">Error: </strong>
+							<span className="block sm:inline">{error}</span>
+						</div>
 					)}
-				</button>
-			</div>
+
+					<div className="mt-4">
+						<button
+							onClick={handleAnalyse}
+							disabled={!canProceed || isCreating || !session}
+							className={`w-full p-4 rounded-lg text-white transition-colors duration-200 ${
+								canProceed && session
+									? "bg-primary hover:bg-primaryDark"
+									: "bg-zinc-400"
+							}`}
+						>
+							{isCreating ? (
+								<span className="flex items-center justify-center">
+									<svg
+										className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+									>
+										<circle
+											className="opacity-25"
+											cx="12"
+											cy="12"
+											r="10"
+											stroke="currentColor"
+											strokeWidth="4"
+										></circle>
+										<path
+											className="opacity-75"
+											fill="currentColor"
+											d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+										></path>
+									</svg>
+									Analysing
+								</span>
+							) : (
+								<>Analyse →</>
+							)}
+						</button>
+					</div>
+				</>
+			)}
 		</div>
 	);
 };

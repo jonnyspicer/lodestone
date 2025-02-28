@@ -185,7 +185,7 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 			);
 
 			// Navigate to analysis view
-			navigate(`/sessions/${id}/analysis`);
+			navigate(`/analysis/${id}`);
 		} catch (error) {
 			console.error("Analysis failed:", error);
 			setError(error instanceof Error ? error.message : "Unknown error");
