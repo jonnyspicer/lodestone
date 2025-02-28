@@ -261,6 +261,43 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 						relationships={content.relationships || []}
 						onChangeJSON={handleEditorChange}
 					/>
+
+					{/* Debug Logs Section */}
+					<div className="mt-8 border border-gray-200 rounded-md">
+						<details className="group">
+							<summary className="flex justify-between items-center font-medium cursor-pointer p-4  rounded-md">
+								<span className="text-gray-700 font-mono text-sm">
+									debug logs
+								</span>
+								<span className="transition group-open:rotate-180">
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										fill="none"
+										viewBox="0 0 24 24"
+										strokeWidth={1.5}
+										stroke="currentColor"
+										className="w-5 h-5"
+									>
+										<path
+											strokeLinecap="round"
+											strokeLinejoin="round"
+											d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+										/>
+									</svg>
+								</span>
+							</summary>
+							<pre className="p-4 rounded-md max-w-full overflow-auto mb-4 text-sm">
+								Highlights:
+								<br />
+								{JSON.stringify(content.highlights || [], null, 2)}
+								<br />
+								<br />
+								Relationships:
+								<br />
+								{JSON.stringify(content.relationships || [], null, 2)}
+							</pre>
+						</details>
+					</div>
 				</div>
 			</div>
 		</div>
