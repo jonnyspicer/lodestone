@@ -38,6 +38,7 @@ const App = () => {
 						path="/sessions/:id/analysis"
 						element={<EditorPage mode="analysis" />}
 					/>
+					<Route path="/sessions/:id/input" element={<InputPage />} />
 				</Routes>
 			</div>
 		</Router>

@@ -8,6 +8,8 @@ export const SessionsPage = () => {
 	const navigate = useNavigate();
 	const sessions = useLiveQuery(() => SessionManager.getSessions(), [], []);
 	const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+	const [renaming, setRenaming] = useState<number | null>(null);
+	const [newTitle, setNewTitle] = useState<string>("");
 
 	const handleDelete = async (sessionId: number) => {
 		try {
@@ -25,6 +27,24 @@ export const SessionsPage = () => {
 				? `/analyse/${sessionId}`
 				: `/sessions/${sessionId}/analysis`
 		);
+	};
+
+	const handleRename = (sessionId: number, currentTitle: string) => {
+		setRenaming(sessionId);
+		setNewTitle(currentTitle);
+	};
+
+	const saveNewTitle = async (sessionId: number) => {
+		try {
+			if (newTitle.trim()) {
+				await SessionManager.updateSessionTitle(sessionId, newTitle.trim());
+			}
+		} catch (error) {
+			console.error("Failed to rename session:", error);
+		} finally {
+			setRenaming(null);
+			setNewTitle("");
+		}
 	};
 
 	return (
@@ -60,7 +80,45 @@ export const SessionsPage = () => {
 							onClick={() => handleSessionClick(session.id!, session.status)}
 						>
 							<div>
-								<h2 className="text-xl font-semibold mb-2">{session.title}</h2>
+								{renaming === session.id ? (
+									<div onClick={(e) => e.stopPropagation()} className="mb-2">
+										<input
+											type="text"
+											value={newTitle}
+											onChange={(e) => setNewTitle(e.target.value)}
+											className="border border-zinc-300 rounded-md px-2 py-1 text-xl font-semibold w-full"
+											autoFocus
+											onKeyDown={(e) => {
+												if (e.key === "Enter") saveNewTitle(session.id!);
+												if (e.key === "Escape") {
+													setRenaming(null);
+													setNewTitle("");
+												}
+											}}
+										/>
+										<div className="flex gap-2 mt-1">
+											<button
+												onClick={() => saveNewTitle(session.id!)}
+												className="px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600"
+											>
+												Save
+											</button>
+											<button
+												onClick={() => {
+													setRenaming(null);
+													setNewTitle("");
+												}}
+												className="px-2 py-1 text-xs bg-zinc-200 text-zinc-700 rounded hover:bg-zinc-300"
+											>
+												Cancel
+											</button>
+										</div>
+									</div>
+								) : (
+									<h2 className="text-xl font-semibold mb-2">
+										{session.title}
+									</h2>
+								)}
 								<div className="flex flex-row items-center gap-2">
 									<p className="text-sm text-zinc-500 flex flex-row items-center gap-0.5">
 										<svg
@@ -90,30 +148,58 @@ export const SessionsPage = () => {
 							</div>
 						</div>
 
-						{/* Delete button */}
-						<button
-							onClick={(e) => {
-								e.stopPropagation();
-								setConfirmDelete(session.id!);
-							}}
-							className="absolute top-3 right-3 p-2 text-zinc-400 hover:text-red-500 transition-colors"
-							aria-label="Delete session"
-						>
-							<svg
-								width="16"
-								height="16"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
+						{/* Action buttons */}
+						<div className="absolute top-3 right-3 flex">
+							{/* Rename button */}
+							<button
+								onClick={(e) => {
+									e.stopPropagation();
+									handleRename(session.id!, session.title);
+								}}
+								className="p-2 text-zinc-400 hover:text-blue-500 transition-colors"
+								aria-label="Rename session"
 							>
-								<path
-									d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-								/>
-							</svg>
-						</button>
+								<svg
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+								>
+									<path
+										d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+									/>
+								</svg>
+							</button>
+
+							{/* Delete button */}
+							<button
+								onClick={(e) => {
+									e.stopPropagation();
+									setConfirmDelete(session.id!);
+								}}
+								className="p-2 text-zinc-400 hover:text-red-500 transition-colors"
+								aria-label="Delete session"
+							>
+								<svg
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+								>
+									<path
+										d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+									/>
+								</svg>
+							</button>
+						</div>
 
 						{/* Confirmation dialog */}
 						{confirmDelete === session.id && (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate, useParams, useBeforeUnload } from "react-router-dom";
 import type { RemirrorJSON } from "remirror";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -6,6 +6,16 @@ import Editor from "../components/Editor";
 import { SessionManager } from "../utils/sessionManager";
 import { modelServices } from "../services/models";
 import { detailedPrompt } from "../evals/prompts";
+import { DynamicQuestionsService } from "../services/dynamicQuestions";
+import DynamicQuestionsPanel from "../components/DynamicQuestionsPanel";
+import { DynamicQuestion } from "../db";
+
+// Configuration for dynamic questions feature
+const DYNAMIC_QUESTIONS_CONFIG = {
+	minCharsBeforeGeneration: 100, // Minimum characters before generating questions
+	minTimeBetweenCalls: 30000, // Minimum time between API calls (30 seconds)
+	debounceTime: 500, // Debounce time for typing (ms)
+};
 
 export const InputPage = () => {
 	const navigate = useNavigate();
@@ -18,6 +28,56 @@ export const InputPage = () => {
 	const [isCreating, setIsCreating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [isDirty, setIsDirty] = useState(false);
+	const [newSessionCreationInProgress, setNewSessionCreationInProgress] =
+		useState(false);
+
+	// Dynamic questions state
+	const [questions, setQuestions] = useState<DynamicQuestion[]>([]);
+	const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
+	const [isQuestionsExpanded, setIsQuestionsExpanded] = useState(false);
+	const lastGenerationTime = useRef<number>(0);
+	const contentLengthRef = useRef<number>(0);
+	const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const sessionIdRef = useRef<number | null>(null);
+	const hasDefaultQuestionsRef = useRef<boolean>(false);
+	// Add a ref to track when session ID changes to use in dependency arrays
+	const sessionIdChangeTracker = useRef<number>(0);
+	// Add a ref to track when we need to reload questions
+	const shouldReloadQuestionsRef = useRef<boolean>(false);
+
+	// Memoize the content extraction function to prevent unnecessary recalculations
+	const extractTextFromContent = useCallback((json: RemirrorJSON): string => {
+		let text = "";
+
+		const traverse = (node: unknown) => {
+			// Type guard to check if the node has a text property
+			if (
+				node &&
+				typeof node === "object" &&
+				"text" in node &&
+				typeof node.text === "string"
+			) {
+				text += node.text;
+			}
+
+			// Type guard to check if the node has content array
+			if (
+				node &&
+				typeof node === "object" &&
+				"content" in node &&
+				Array.isArray(node.content)
+			) {
+				node.content.forEach((childNode) => traverse(childNode));
+			}
+		};
+
+		// Start traversal from the root
+		if (json.content && Array.isArray(json.content)) {
+			json.content.forEach((node) => traverse(node));
+		}
+
+		return text;
+	}, []);
 
 	// Load existing session if we have an ID
 	const session = useLiveQuery(async () => {
@@ -25,13 +85,260 @@ export const InputPage = () => {
 		return SessionManager.getSession(parseInt(id));
 	}, [id]);
 
+	// Load existing questions for this session
+	const loadQuestions = useCallback(async (sessionId: number) => {
+		try {
+			console.log(`Loading questions for session ${sessionId}`);
+
+			// First clean up any duplicate default questions
+			await DynamicQuestionsService.cleanupDuplicateDefaultQuestions(sessionId);
+
+			// Get only questions to display (not all questions)
+			const displayQuestions =
+				await DynamicQuestionsService.getQuestionsForDisplay(sessionId);
+
+			console.log(
+				`Loaded ${displayQuestions.length} questions from the database`
+			);
+
+			// Only update questions state if we got non-empty results
+			// This prevents flickering when the database temporarily returns empty results
+			if (displayQuestions.length > 0) {
+				setQuestions(displayQuestions);
+				// Update ref to track if we have default questions
+				hasDefaultQuestionsRef.current = displayQuestions.some(
+					(q) => q.isInitialQuestion
+				);
+			} else {
+				// If no questions were found, try adding default questions as a recovery mechanism
+				console.log("No questions found, attempting to add default questions");
+				const defaultQuestions =
+					await DynamicQuestionsService.addDefaultQuestions(sessionId);
+
+				if (defaultQuestions.length > 0) {
+					console.log(
+						`Added ${defaultQuestions.length} default questions as fallback`
+					);
+					setQuestions(defaultQuestions);
+					hasDefaultQuestionsRef.current = true;
+				} else {
+					console.warn("Still no questions after recovery attempt");
+				}
+			}
+
+			// Reset the reload flag since we've just loaded questions
+			shouldReloadQuestionsRef.current = false;
+		} catch (error) {
+			console.error("Error loading questions:", error);
+		}
+	}, []);
+
 	// Initialize content from session if it exists
 	useEffect(() => {
 		if (session) {
 			setTopic(session.title);
 			setContent(session.inputContent.content);
+
+			// Store session ID in ref for question generation
+			if (session.id) {
+				sessionIdRef.current = session.id;
+				// Increment the tracker to signal the session ID has changed
+				sessionIdChangeTracker.current += 1;
+				// Load questions for this session
+				loadQuestions(session.id);
+			}
 		}
-	}, [session]);
+	}, [session, loadQuestions]);
+
+	// Create a new session when the user starts typing if they don't have one yet
+	useEffect(() => {
+		// Only run this effect if there's no ID from the URL, no existing session ID, and not already creating a session
+		if (!id && !sessionIdRef.current && !newSessionCreationInProgress) {
+			const textContent = extractTextFromContent(content).trim();
+
+			// Only create a session if the user has actually typed something
+			if (textContent.length > 0) {
+				setNewSessionCreationInProgress(true);
+
+				// Create a new session
+				(async () => {
+					try {
+						const newSession = await SessionManager.createSession(
+							topic || "Untitled",
+							content
+						);
+						if (newSession.id) {
+							sessionIdRef.current = newSession.id;
+							// Increment the tracker to signal the session ID has changed
+							sessionIdChangeTracker.current += 1;
+
+							// Add default questions immediately after creating the session
+							const defaultQuestions =
+								await DynamicQuestionsService.addDefaultQuestions(
+									newSession.id
+								);
+							setQuestions(defaultQuestions);
+							hasDefaultQuestionsRef.current = true;
+
+							// Update the URL to include the new session ID but without a full page reload
+							navigate(`/input/${newSession.id}`, { replace: true });
+						} else {
+							console.error("Failed to create session: No session ID returned");
+						}
+					} catch (error) {
+						console.error("Error creating new session:", error);
+					} finally {
+						setNewSessionCreationInProgress(false);
+					}
+				})();
+			}
+		}
+	}, [id, content, topic, navigate, extractTextFromContent]);
+
+	// Add default questions when first loading (if we have a session ID from the URL)
+	useEffect(() => {
+		// This effect only runs once when the session ID is first available
+		const currentSessionId = sessionIdRef.current;
+		const hasId = id && !isNaN(parseInt(id));
+
+		if (
+			hasId &&
+			currentSessionId &&
+			!hasDefaultQuestionsRef.current &&
+			questions.length === 0
+		) {
+			(async () => {
+				try {
+					// Check if we already have questions first
+					const existingQuestions =
+						await DynamicQuestionsService.getQuestionsForDisplay(
+							currentSessionId
+						);
+
+					if (existingQuestions.length === 0) {
+						// Add default questions if none exist
+						const defaultQuestions =
+							await DynamicQuestionsService.addDefaultQuestions(
+								currentSessionId
+							);
+						setQuestions(defaultQuestions);
+						hasDefaultQuestionsRef.current = true;
+					} else {
+						// Use existing questions
+						setQuestions(existingQuestions);
+						hasDefaultQuestionsRef.current = existingQuestions.some(
+							(q) => q.isInitialQuestion
+						);
+					}
+				} catch (error) {
+					console.error(
+						"Error adding default questions on initial load:",
+						error
+					);
+				}
+			})();
+		}
+	}, [id, sessionIdChangeTracker.current]); // Using the tracker value instead of the ref directly
+
+	// Effect to load questions when reload flag is set
+	// This separates the question loading from generation
+	useEffect(() => {
+		if (shouldReloadQuestionsRef.current && sessionIdRef.current) {
+			loadQuestions(sessionIdRef.current);
+		}
+	}, [loadQuestions]);
+
+	// Generate dynamic questions when content changes
+	// IMPORTANT: questions is removed from dependencies to break circular updates!
+	useEffect(() => {
+		// Clear any existing debounce timer
+		if (debounceTimerRef.current) {
+			clearTimeout(debounceTimerRef.current);
+		}
+
+		// Only proceed if we have a sessionId
+		const currentSessionId = sessionIdRef.current;
+		if (!currentSessionId) {
+			return;
+		}
+
+		// Extract text content from the editor
+		const textContent = extractTextFromContent(content);
+		const prevLength = contentLengthRef.current;
+		contentLengthRef.current = textContent.length;
+
+		// Don't generate questions if not enough content
+		if (
+			textContent.length < DYNAMIC_QUESTIONS_CONFIG.minCharsBeforeGeneration
+		) {
+			return;
+		}
+
+		// Check if enough time has passed since last generation
+		const now = Date.now();
+		const timeSinceLastGeneration = now - lastGenerationTime.current;
+		const shouldGenerate =
+			timeSinceLastGeneration >= DYNAMIC_QUESTIONS_CONFIG.minTimeBetweenCalls ||
+			textContent.length >= prevLength + 100; // Or if 100+ new characters since last check
+
+		if (!shouldGenerate) return;
+
+		// Set a debounce timer to wait for user to stop typing
+		debounceTimerRef.current = setTimeout(async () => {
+			// Ensure the user has paused typing before generating questions
+			try {
+				setIsLoadingQuestions(true);
+
+				// Get API key from environment
+				const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+				if (!apiKey) {
+					console.error("OpenAI API key not found");
+					throw new Error("OpenAI API key not found in environment variables");
+				}
+
+				// Get previously asked questions to avoid repeating - but don't use state directly
+				// Instead, fetch them from the database to avoid circular dependencies
+				const allQuestions = await DynamicQuestionsService.getAllQuestions(
+					currentSessionId
+				);
+				const previousQuestions = allQuestions.map((q) => q.question);
+
+				// Generate new questions
+				console.log("Calling OpenAI to generate new questions");
+				const newQuestions = await DynamicQuestionsService.generateQuestions({
+					text: textContent,
+					sessionId: currentSessionId,
+					topic: topic,
+					apiKey,
+					previousQuestions,
+				});
+				console.log("Generated new questions:", newQuestions.length);
+
+				// Update the displayed questions
+				if (newQuestions.length > 0) {
+					// Signal that we need to reload questions on next render
+					shouldReloadQuestionsRef.current = true;
+					// Force an update without directly using questions state as a dependency
+					// This is like poking React to run the other effect
+					sessionIdChangeTracker.current += 1;
+				}
+
+				// Update the last generation time
+				lastGenerationTime.current = Date.now();
+			} catch (error) {
+				console.error("Error generating questions:", error);
+			} finally {
+				setIsLoadingQuestions(false);
+			}
+		}, DYNAMIC_QUESTIONS_CONFIG.debounceTime);
+
+		// Cleanup function to clear the timer
+		return () => {
+			if (debounceTimerRef.current) {
+				clearTimeout(debounceTimerRef.current);
+			}
+		};
+	}, [content, topic, extractTextFromContent, loadQuestions]); // Removed 'questions' from dependencies!
 
 	// Save changes to existing session
 	const saveChanges = useCallback(async () => {
@@ -55,16 +362,19 @@ export const InputPage = () => {
 	}, [isDirty, saveChanges]);
 
 	// Handle content changes
-	const handleContentChange = (json: RemirrorJSON) => {
-		setContent(json);
-		setIsDirty(true);
-	};
+	const handleContentChange = useCallback(
+		(json: RemirrorJSON) => {
+			setContent(json);
+			setIsDirty(true);
+		},
+		[extractTextFromContent]
+	);
 
 	// Handle topic changes
-	const handleTopicChange = (newTopic: string) => {
+	const handleTopicChange = useCallback((newTopic: string) => {
 		setTopic(newTopic);
 		setIsDirty(true);
-	};
+	}, []);
 
 	// Save before leaving
 	useEffect(() => {
@@ -84,11 +394,11 @@ export const InputPage = () => {
 		}, [isDirty, id, saveChanges])
 	);
 
-	const handleAnalyse = async () => {
+	const handleAnalyse = useCallback(async () => {
 		setIsCreating(true);
 		setError(null);
 		try {
-			let sessionId: number | null = id ? parseInt(id) : null;
+			let sessionId: number | null = id ? parseInt(id) : sessionIdRef.current;
 
 			if (!sessionId) {
 				// Create a new session if needed
@@ -97,6 +407,7 @@ export const InputPage = () => {
 					throw new Error("Failed to create session: No session ID returned");
 				}
 				sessionId = newSession.id;
+				sessionIdRef.current = sessionId;
 			} else {
 				// Save any pending changes
 				await SessionManager.updateInputContent(sessionId, content);
@@ -107,16 +418,7 @@ export const InputPage = () => {
 			const service = modelServices["gpt4o-mini"];
 
 			// Extract text content from the editor
-			const textContent =
-				content.content
-					?.map((paragraph) =>
-						paragraph.content
-							?.map((node) => node.text)
-							.filter(Boolean)
-							.join("")
-					)
-					.filter(Boolean)
-					.join("\n") || "";
+			const textContent = extractTextFromContent(content);
 
 			// Prepare the prompt by replacing the text placeholder
 			const prompt = detailedPrompt.template.replace("{{text}}", textContent);
@@ -150,17 +452,40 @@ export const InputPage = () => {
 		} finally {
 			setIsCreating(false);
 		}
-	};
+	}, [id, topic, content, navigate, extractTextFromContent]);
 
-	// Determine if we can proceed with analysis
-	const canProceed =
-		Boolean(topic.trim()) &&
-		content?.content?.some((p) =>
-			p.content?.some((n) => n.text && n.text.trim().length > 0)
+	// Toggle expand/collapse for questions - memoize to prevent new function references
+	const handleToggleQuestionsExpand = useCallback(() => {
+		setIsQuestionsExpanded((prev) => !prev);
+	}, []);
+
+	// Memoize the canProceed value
+	const canProceed = useMemo(() => {
+		return (
+			Boolean(topic.trim()) &&
+			content?.content?.some((p) =>
+				p.content?.some((n) => n.text && n.text.trim().length > 0)
+			)
 		);
+	}, [topic, content]);
+
+	// Memoize props for DynamicQuestionsPanel to prevent unnecessary re-renders
+	const questionsProps = useMemo(() => {
+		return {
+			questions,
+			isLoading: isLoadingQuestions,
+			isExpanded: isQuestionsExpanded,
+			onToggleExpand: handleToggleQuestionsExpand,
+		};
+	}, [
+		questions,
+		isLoadingQuestions,
+		isQuestionsExpanded,
+		handleToggleQuestionsExpand,
+	]);
 
 	return (
-		<div className="max-w-3xl mx-auto p-8 space-y-8 mb-24">
+		<div className="max-w-5xl mx-auto p-8 mb-24">
 			<div>
 				<label className="uppercase text-zinc-600 text-sm font-medium mb-2 block tracking-wider">
 					Topic
@@ -174,25 +499,29 @@ export const InputPage = () => {
 				/>
 			</div>
 
-			<div>
-				<label className="uppercase text-zinc-600 text-sm font-medium mb-2 block tracking-wider">
-					Initial Ideas
-				</label>
-				<div className="min-h-[400px]">
-					<Editor
-						placeholder={`Write down all your initial ideas and opinions, unorganised and unfiltered. The more the better.
+			<div className="mt-8 flex">
+				{/* Main content area */}
+				<div className="flex-1">
+					<label className="uppercase text-zinc-600 text-sm font-medium mb-2 block tracking-wider">
+						Initial Ideas
+					</label>
+					<div className="min-h-[400px]">
+						<Editor
+							placeholder={`Write down all your initial ideas and opinions, unorganised and unfiltered. The more the better.`}
+							initialContent={content}
+							onChangeJSON={handleContentChange}
+						/>
+					</div>
+				</div>
 
-What do you currently believe about this?
-What do you want to say about it?
-Why is this an interesting problem?`}
-						initialContent={content}
-						onChangeJSON={handleContentChange}
-					/>
+				{/* Questions panel on the right - always render the panel */}
+				<div className="ml-6 w-72">
+					<DynamicQuestionsPanel {...questionsProps} />
 				</div>
 			</div>
 
 			{error && (
-				<div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded relative">
+				<div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded relative mt-4">
 					<strong className="font-bold">Error: </strong>
 					<span className="block sm:inline">{error}</span>
 				</div>

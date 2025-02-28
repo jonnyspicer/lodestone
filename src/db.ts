@@ -12,6 +12,19 @@ export interface EditorContent {
 	updatedAt: Date;
 }
 
+// Define the Dynamic Questions type
+export interface DynamicQuestion {
+	id?: number;
+	sessionId: number;
+	question: string;
+	generatedAt: Date;
+	triggeringText: string; // The text that prompted this question
+	isInitialQuestion: boolean; // To distinguish between default and AI-generated questions
+	wasShown: boolean; // Track if it was ever displayed to user
+	shownAt?: Date; // When it was displayed
+	removedAt?: Date; // When it was cycled out
+}
+
 // Define the Session type
 export interface Session {
 	id?: number;
@@ -28,6 +41,9 @@ export interface Session {
 
 	// Analysis content (optional until analysis is performed)
 	analysedContent?: AnalysedContent;
+
+	// Dynamic questions (optional)
+	dynamicQuestions?: DynamicQuestion[];
 
 	lastModified: Date;
 }
@@ -46,14 +62,17 @@ export interface AnalysedContent {
 export class EditorDatabase extends Dexie {
 	editorContent!: Table<EditorContent>;
 	sessions!: Table<Session>;
+	dynamicQuestions!: Table<DynamicQuestion>;
 
 	constructor() {
 		super("EditorDatabase");
 
 		// Define schemas for all tables
-		this.version(8).stores({
+		this.version(11).stores({
 			editorContent: "++id, updatedAt",
 			sessions: "++id, createdAt, status, lastModified, highlightCount",
+			dynamicQuestions:
+				"++id, sessionId, generatedAt, isInitialQuestion, wasShown",
 		});
 
 		// Add hooks to ensure content is properly handled
