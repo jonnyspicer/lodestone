@@ -96,7 +96,7 @@ export const InputPage = () => {
 	]);
 
 	return (
-		<div className="max-w-5xl mx-auto p-8 mb-24">
+		<div className="max-w-4xl mx-auto p-8 mb-24">
 			{isLoading ? (
 				<div className="flex items-center justify-center py-12">
 					<div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -114,26 +114,24 @@ export const InputPage = () => {
 							onChange={(e) => handleTopicChange(e.target.value)}
 							onBlur={handleInputBlur}
 							placeholder="What do you want to write about?"
-							className="w-full px-6 py-5 border rounded-lg remirror-theme"
+							className="w-full px-5 py-4 border rounded-lg remirror-theme transition-all duration-200 shadow-[0_12px_16px_-2px_rgba(24,16,62,0.05)]"
 						/>
 					</div>
 
-					<div className="mt-8 flex">
-						{/* Main content area */}
-						<div className="flex-1">
+					<div className="mt-8 relative">
+						<div className="w-full">
 							<label className="uppercase text-zinc-600 text-sm font-medium mb-2 block tracking-wider">
 								Initial Ideas
 							</label>
-							<div className="min-h-[400px]">
+							<div className="min-h-[400px] mb-8">
 								<Editor
-									placeholder={`Write down all your initial ideas and opinions, unorganised and unfiltered. The more the better.`}
+									placeholder={`Write down all your initial ideas and opinions, unorganised and unfiltered.`}
 									initialContent={content}
 									onChangeJSON={handleContentChange}
 								/>
 							</div>
 						</div>
-
-						<div className="ml-6 w-72">
+						<div className="absolute top-0 -right-0 translate-x-[calc(100%+24px)] w-64 mt-3">
 							<DynamicQuestionsPanel {...questionsProps} />
 						</div>
 					</div>

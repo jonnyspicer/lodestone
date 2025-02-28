@@ -267,7 +267,7 @@ export const EditorPage = ({ mode }: EditorPageProps) => {
 						<details className="group">
 							<summary className="flex justify-between items-center font-medium cursor-pointer p-4  rounded-md">
 								<span className="text-gray-700 font-mono text-sm">
-									debug logs
+									Debug Logs
 								</span>
 								<span className="transition group-open:rotate-180">
 									<svg

@@ -13,6 +13,7 @@ import {
 } from "@remirror/react";
 import type { RemirrorJSON } from "remirror";
 import { EntityReferenceExtension } from "remirror/extensions";
+import { PlaceholderExtension } from "remirror/extensions";
 import type {
 	RemirrorEventListener,
 	RemirrorEventListenerProps,
@@ -59,6 +60,9 @@ const Editor = forwardRef<
 						default: null,
 					},
 				},
+			}),
+			new PlaceholderExtension({
+				placeholder: props.placeholder || "Start typing...",
 			}),
 		],
 		content: props.initialContent ?? {
@@ -213,7 +217,7 @@ const Editor = forwardRef<
 		);
 
 	return (
-		<div className="remirror-theme h-full flex flex-col relative">
+		<div className="remirror-theme min-h-[400px] flex flex-col relative">
 			{errorState && (
 				<div className="bg-red-100 text-red-700 p-2 mb-2 rounded">
 					{errorState}
@@ -226,12 +230,9 @@ const Editor = forwardRef<
 				autoFocus
 				onChange={handleChange}
 			>
-				<div className="h-full">
-					<div className="w-full">
-						<EditorComponent
-							// @ts-expect-error - placeholder prop is supported but has typing issues
-							placeholder={props.placeholder || "Start typing..."}
-						/>
+				<div className="h-full min-h-[400px]">
+					<div className="w-full h-full">
+						<EditorComponent />
 					</div>
 
 					{props.renderSidebar && props.showHighlightButtons && (

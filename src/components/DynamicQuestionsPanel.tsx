@@ -138,10 +138,6 @@ const DynamicQuestionsPanel: React.FC<DynamicQuestionsPanelProps> = ({
 	return (
 		<div className="mt-4 transition-all duration-300 min-h-[100px]">
 			<div className="mb-2 flex items-center justify-between">
-				<h3 className="text-sm font-medium text-zinc-600 uppercase tracking-wider">
-					Questions to consider
-				</h3>
-
 				{questions.length > 3 && (
 					<button
 						onClick={onToggleExpand}
@@ -157,7 +153,7 @@ const DynamicQuestionsPanel: React.FC<DynamicQuestionsPanelProps> = ({
 					displayQuestions.map((question) => (
 						<div
 							key={question.id}
-							className="p-3 bg-zinc-50 rounded border border-zinc-200 text-sm text-zinc-600 font-medium animate-fade-in"
+							className="text-sm text-zinc-500 font-medium animate-fade-in"
 						>
 							{question.question}
 						</div>
