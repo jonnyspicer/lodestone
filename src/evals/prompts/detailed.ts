@@ -22,7 +22,7 @@ Relationships:
 IMPORTANT: For each component you identify, you MUST use exact, verbatim text from the input. Do not modify, paraphrase, or extend the text in any way. Each highlight must be a continuous substring of the input text.
 
 Here's an example:
-Text: "Global warming is a serious threat. Arctic ice has decreased by 13% per decade. This suggests future sea level rises will be catastrophic."
+Text: "Global warming is a serious threat. Arctic ice has decreased by 13% per decade. This suggests future sea level rises will be catastrophic. While this is concerning, we don't have exact details on how much sea level will rise."
 
 Return your analysis in the following JSON format:
 {
@@ -41,6 +41,11 @@ Return your analysis in the following JSON format:
             "id": "3",
             "labelType": "implication",
             "text": "This suggests future sea level rises will be catastrophic"
+        },
+        {
+            "id": "4",
+            "labelType": "counterargument",
+            "text": "While this is concerning, we don't have exact details on how much sea level will rise."
         }
     ],
     "relationships": [
