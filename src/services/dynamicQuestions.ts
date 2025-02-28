@@ -40,8 +40,6 @@ export class DynamicQuestionsService {
 			await db.sessions.update(sessionId, {
 				lastProcessedContent: content,
 			});
-
-			console.log(`Saved last processed content for session ${sessionId}`);
 		} catch (error) {
 			console.error("Error saving last processed content:", error);
 		}
@@ -75,10 +73,6 @@ export class DynamicQuestionsService {
 	): Promise<DynamicQuestion[]> {
 		// First check if default questions already exist to prevent duplication
 		try {
-			console.log(
-				"Checking for existing default questions for session",
-				sessionId
-			);
 			const existingDefaultQuestions = await db.dynamicQuestions
 				.where("sessionId")
 				.equals(sessionId)
@@ -86,10 +80,6 @@ export class DynamicQuestionsService {
 				.toArray();
 
 			if (existingDefaultQuestions.length > 0) {
-				console.log(
-					"Found existing default questions:",
-					existingDefaultQuestions.length
-				);
 				return existingDefaultQuestions;
 			}
 		} catch (error) {
@@ -110,11 +100,6 @@ export class DynamicQuestionsService {
 
 		// Add questions to the database
 		try {
-			console.log(
-				"Adding default questions to database for session",
-				sessionId
-			);
-
 			// Add each question individually with explicit error handling
 			const ids: number[] = [];
 			for (const question of questions) {
@@ -129,8 +114,6 @@ export class DynamicQuestionsService {
 					);
 				}
 			}
-
-			console.log("Successfully added default questions, count:", ids.length);
 
 			// Return the questions with their ids
 			return questions.map((q, i) => ({ ...q, id: ids[i] }));
@@ -194,10 +177,6 @@ export class DynamicQuestionsService {
 					questions.map((q) => db.dynamicQuestions.add(q))
 				);
 			});
-			console.log(
-				"Added new dynamic questions to database, count:",
-				ids.length
-			);
 
 			// Save the text that triggered these questions
 			await this.saveLastProcessedContent(options.sessionId, options.text);
@@ -217,10 +196,6 @@ export class DynamicQuestionsService {
 		sessionId: number,
 		limit: number = QUESTION_CONFIG.maxQuestionsVisible
 	): Promise<DynamicQuestion[]> {
-		console.log(
-			`Getting questions for display for session ${sessionId}, limit: ${limit}`
-		);
-
 		let dynamicQuestions: DynamicQuestion[] = [];
 		let defaultQuestions: DynamicQuestion[] = [];
 
@@ -231,8 +206,6 @@ export class DynamicQuestionsService {
 				.equals(sessionId)
 				.and((q) => q.isInitialQuestion === false && !q.removedAt)
 				.sortBy("generatedAt");
-
-			console.log(`Found ${dynamicQuestions.length} dynamic questions`);
 		} catch (error) {
 			console.error("Error fetching dynamic questions:", error);
 		}
@@ -244,8 +217,6 @@ export class DynamicQuestionsService {
 				.equals(sessionId)
 				.and((q) => q.isInitialQuestion === true && !q.removedAt)
 				.sortBy("generatedAt");
-
-			console.log(`Found ${defaultQuestions.length} default questions`);
 		} catch (error) {
 			console.error("Error fetching default questions:", error);
 		}
@@ -286,8 +257,6 @@ export class DynamicQuestionsService {
 		// Make sure we don't exceed the limit
 		questionsToDisplay = questionsToDisplay.slice(0, limit);
 
-		console.log(`Returning ${questionsToDisplay.length} questions for display`);
-
 		// If we have questions to display, mark unshown ones as shown
 		if (questionsToDisplay.length > 0) {
 			const now = new Date();
@@ -296,8 +265,6 @@ export class DynamicQuestionsService {
 				const unshownQuestions = questionsToDisplay.filter((q) => !q.wasShown);
 
 				if (unshownQuestions.length > 0) {
-					console.log(`Marking ${unshownQuestions.length} questions as shown`);
-
 					for (const q of unshownQuestions) {
 						if (q.id) {
 							try {
@@ -360,13 +327,13 @@ You are a critical thinking assistant helping a writer develop their ideas on th
 			options.topic
 		}".
 
-Based on what they've written so far, generate 3-4 thought-provoking questions that will help them explore their ideas more deeply.
+Based on what they've written so far, generate 3 thought-provoking questions that will help them explore their ideas more deeply.
 
 Good questions should:
 - Be specific to the content they've written
 - Push them to consider different perspectives
 - Help them elaborate on their reasoning
-- Be concise (no more than 20 words each)
+- Be concise (no more than 12 words each)
 - Focus on critical thinking
 
 Their current text:
@@ -421,6 +388,56 @@ Return only the questions as a valid JSON array of strings. For example:
 				console.log(`Removing ${toRemove.length} duplicate default questions`);
 				await this.markQuestionsAsRemoved(toRemove);
 			}
+		}
+	}
+
+	/**
+	 * Debug function to log all questions for a session
+	 */
+	static async logAllSessionQuestions(sessionId: number): Promise<void> {
+		try {
+			// Get all questions for the session
+			const allQuestions = await db.dynamicQuestions
+				.where("sessionId")
+				.equals(sessionId)
+				.toArray();
+
+			// Separate default and generated questions
+			const defaultQuestions = allQuestions.filter((q) => q.isInitialQuestion);
+			const generatedQuestions = allQuestions.filter(
+				(q) => !q.isInitialQuestion
+			);
+
+			console.group(`Questions for Session ${sessionId}`);
+
+			console.log(
+				"Default Questions:",
+				defaultQuestions.map((q) => ({
+					question: q.question,
+					generatedAt: q.generatedAt,
+					wasShown: q.wasShown,
+					shownAt: q.shownAt,
+				}))
+			);
+
+			console.log(
+				"Generated Questions:",
+				generatedQuestions.map((q) => ({
+					question: q.question,
+					generatedAt: q.generatedAt,
+					wasShown: q.wasShown,
+					shownAt: q.shownAt,
+					triggeringText: q.triggeringText.slice(0, 50) + "...", // Show first 50 chars of triggering text
+				}))
+			);
+
+			console.log("Total Questions:", allQuestions.length);
+			console.log("Default Questions:", defaultQuestions.length);
+			console.log("Generated Questions:", generatedQuestions.length);
+
+			console.groupEnd();
+		} catch (error) {
+			console.error("Error logging session questions:", error);
 		}
 	}
 }

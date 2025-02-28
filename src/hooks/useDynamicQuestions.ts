@@ -105,6 +105,9 @@ export function useDynamicQuestions({
 		try {
 			console.log(`Loading questions for session ${sessionId}`);
 
+			// Debug: Log all questions for this session
+			await DynamicQuestionsService.logAllSessionQuestions(sessionId);
+
 			// First clean up any duplicate default questions
 			await DynamicQuestionsService.cleanupDuplicateDefaultQuestions(sessionId);
 
