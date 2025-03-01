@@ -193,7 +193,7 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 	);
 
 	return (
-		<div className="flex flex-col gap-3 highlight-buttons-sidebar">
+		<div className="flex flex-col gap-2 highlight-buttons-sidebar">
 			{error && <div className="text-red-500 mb-2 text-sm">{error}</div>}
 			{LABEL_CONFIGS.map((label) => {
 				// Get entity references at the current cursor position
@@ -209,8 +209,9 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 						key={label.id}
 						onClick={() => handleHighlight(label.id)}
 						className={`
-							flex items-center gap-2 text-left transition-all group leading-tight
-							${active ? "bg-gray-100 rounded p-1" : "p-1"}
+							inline-flex items-center gap-2.5 text-left transition-all group leading-tight w-fit py-1.5 px-2.5 rounded-full
+							${active ? " bg-white bg-opacity-70" : "p-1"}
+							hover:bg-white hover:bg-opacity-50
 							${pendingRemoval ? "opacity-50 cursor-wait" : ""}
 						`}
 						disabled={pendingRemoval}
@@ -227,32 +228,30 @@ export const HighlightButtons = ({ onSave }: HighlightButtonsProps) => {
 							style={{ backgroundColor: label.color }}
 						/>
 						<span
-							className={`
-								${active ? "text-black font-medium" : "text-gray-700"} 
+							className={`font-medium 
+								${active ? "text-black" : "text-zinc-600"} 
 								group-hover:text-black transition-colors
 							`}
 						>
 							{label.name}
-							{active && !pendingRemoval && (
-								<svg
-									className="ml-1 w-4 h-4 inline-block  stroke-zinc-400"
-									viewBox="0 0 24 24"
-									fill="none"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-								>
-									<circle cx="12" cy="12" r="10" />
-									<path d="M15 9l-6 6" />
-									<path d="M9 9l6 6" />
-								</svg>
-							)}
-							{active && pendingRemoval && (
-								<span className="ml-1 text-xs text-gray-500">
-									(removing...)
-								</span>
-							)}
 						</span>
+						{active && !pendingRemoval && (
+							<svg
+								className="w-3.5 h-3.5 inline-block  stroke-zinc-400"
+								viewBox="0 0 24 24"
+								fill="none"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+							>
+								<circle cx="12" cy="12" r="10" />
+								<path d="M15 9l-6 6" />
+								<path d="M9 9l6 6" />
+							</svg>
+						)}
+						{active && pendingRemoval && (
+							<span className="ml-1 text-xs text-gray-500">(removing...)</span>
+						)}
 					</button>
 				);
 			})}

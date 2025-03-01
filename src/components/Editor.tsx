@@ -236,7 +236,7 @@ const Editor = forwardRef<
 					</div>
 
 					{props.renderSidebar && props.showHighlightButtons && (
-						<div className="absolute left-full top-0 ml-8 pt-4 min-w-[180px] highlight-buttons-sidebar">
+						<div className="absolute left-full top-0 ml-6 pt-3 min-w-[180px] highlight-buttons-sidebar">
 							<HighlightButtons
 								onSave={(json, options) => onChangeJSON?.(json, options)}
 							/>
